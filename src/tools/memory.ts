@@ -533,3 +533,51 @@ export const queryHeapSnapshotObjects = defineTool({
     });
   },
 });
+
+export const analyzeHeapSnapshotContexts = defineTool({
+  name: 'analyze_heapsnapshot_contexts',
+  description:
+    'Loads a memory heapsnapshot and reports JavaScript closure contexts containing unused captured fields, ranked by the retained size of values held in those fields. Returns 20 contexts per page by default. Retained size is a ranking heuristic, not the number of bytes that would be reclaimed.',
+  annotations: {
+    category: ToolCategory.MEMORY,
+    readOnlyHint: true,
+    conditions: ['memoryDebugging'],
+  },
+  blockedByDialog: false,
+  verifyFilesSchema: {
+    filePath: true,
+  },
+  schema: {
+    filePath: zod.string().describe('A path to a .heapsnapshot file to read.'),
+    minRetainedSize: zod
+      .number()
+      .nonnegative()
+      .optional()
+      .describe(
+        'Minimum unused-field retained-size score in bytes for returned contexts.',
+      ),
+    pageIdx: zod
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe('The zero-based page index. Defaults to 0.'),
+    pageSize: zod
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe('The number of contexts to return per page. Defaults to 20.'),
+  },
+  handler: async (request, response, context) => {
+    const analysis = await context.analyzeHeapSnapshotContexts(
+      request.params.filePath,
+    );
+
+    response.setHeapSnapshotContextAnalysis(analysis, {
+      minRetainedSize: request.params.minRetainedSize,
+      pageIdx: request.params.pageIdx,
+      pageSize: request.params.pageSize,
+    });
+  },
+});

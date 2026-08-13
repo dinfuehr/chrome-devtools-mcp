@@ -23,6 +23,24 @@ export interface FormattedSnapshotEntry {
   retainedSize: string;
 }
 
+export interface UnmatchedContextReasonCount {
+  reason: DevTools.HeapSnapshotModel.HeapSnapshotModel.UnmatchedContextReason;
+  count: number;
+}
+
+export interface ContextAnalysisSummary {
+  totalContextCount: number;
+  totalScopeCount: number;
+  totalUnusedFieldsRetainedSizeSum: number;
+  unmatchedContextCount: number;
+  unmatchedContextReasonCounts: readonly UnmatchedContextReasonCount[];
+}
+
+export interface ContextAnalysisReport {
+  summary: ContextAnalysisSummary;
+  scopes: readonly DevTools.HeapSnapshotModel.HeapSnapshotModel.ScopeAnalysis[];
+}
+
 export function isNodeLike(
   item: unknown,
 ): item is DevTools.HeapSnapshotModel.HeapSnapshotModel.Node {
@@ -274,6 +292,85 @@ export class HeapSnapshotFormatter {
       `retainerCount: ${info.retainerCount}`,
     ];
     return lines.join('\n');
+  }
+
+  static formatContextAnalysis(report: ContextAnalysisReport): string {
+    const lines: string[] = [];
+
+    if (report.summary.totalContextCount === 0) {
+      lines.push('No live contexts with unused fields were found.');
+    } else {
+      lines.push(
+        `Found ${formatCount(report.summary.totalContextCount, 'live context')} with unused fields across ${formatCount(report.summary.totalScopeCount, 'source scope')}.`,
+        `Unused-field retained-size score: ${formatBytesToKb(report.summary.totalUnusedFieldsRetainedSizeSum)}`,
+        'The score ranks investigation candidates; it is not an estimate of reclaimable memory.',
+      );
+    }
+
+    for (const scope of report.scopes) {
+      const scriptName = scope.scriptName || `script ${scope.scriptId}`;
+      const scopeHeading = scope.scopeName
+        ? `Scope \`${scope.scopeName}\` in \`${scriptName}\``
+        : `Scope in \`${scriptName}\``;
+      lines.push(
+        '',
+        `#### ${scopeHeading}`,
+        `Script @${scope.scriptNodeId}, ScopeInfo @${scope.scopeInfoNodeId}, offsets ${scope.scopeStart}-${scope.scopeEnd}`,
+      );
+      for (const context of scope.contexts) {
+        lines.push(
+          '',
+          `##### Context @${context.contextNodeId}`,
+          `${context.unusedFields.length} of ${scope.contextFieldCount} context fields unused`,
+          `Unused-field score: ${formatBytesToKb(context.unusedFieldsRetainedSizeSum)}`,
+        );
+        for (const field of context.unusedFields) {
+          lines.push(
+            `- \`${field.name}\` — ${formatBytesToKb(field.retainedSize)}; value \`${field.valueName}\` (${field.valueType}, @${field.valueNodeId})`,
+          );
+        }
+      }
+    }
+
+    if (report.summary.unmatchedContextCount > 0) {
+      const reasonSummary = report.summary.unmatchedContextReasonCounts
+        .map(
+          ({reason, count}) =>
+            `${formatUnmatchedContextReason(reason)}: ${count}`,
+        )
+        .join(', ');
+      lines.push(
+        '',
+        `Unmatched contexts: ${report.summary.unmatchedContextCount} (${reasonSummary}).`,
+      );
+    }
+
+    return lines.join('\n');
+  }
+}
+
+function formatCount(count: number, singular: string): string {
+  return `${count} ${singular}${count === 1 ? '' : 's'}`;
+}
+
+function formatUnmatchedContextReason(
+  reason: DevTools.HeapSnapshotModel.HeapSnapshotModel.UnmatchedContextReason,
+): string {
+  switch (reason) {
+    case 'missing-scope-info':
+      return 'missing scope metadata';
+    case 'missing-scope-position':
+      return 'missing source position';
+    case 'missing-script':
+      return 'missing script metadata';
+    case 'missing-source':
+      return 'missing source text';
+    case 'unparseable-source':
+      return 'unparseable source text';
+    case 'missing-source-scope':
+      return 'source scope not found';
+    default:
+      return reason;
   }
 }
 

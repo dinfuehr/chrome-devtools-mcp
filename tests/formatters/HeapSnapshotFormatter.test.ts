@@ -7,7 +7,10 @@
 import assert from 'node:assert';
 import {describe, it} from 'node:test';
 
-import {HeapSnapshotFormatter} from '../../src/formatters/HeapSnapshotFormatter.js';
+import {
+  type ContextAnalysisReport,
+  HeapSnapshotFormatter,
+} from '../../src/formatters/HeapSnapshotFormatter.js';
 import {DevTools} from '../../src/third_party/index.js';
 import {stableIdSymbol} from '../../src/utils/id.js';
 
@@ -356,6 +359,116 @@ describe('HeapSnapshotFormatter', () => {
       ].join('\n');
 
       assert.strictEqual(result, expected);
+    });
+  });
+
+  describe('formatContextAnalysis', () => {
+    it('formats candidate contexts in analysis order', () => {
+      const report: ContextAnalysisReport = {
+        summary: {
+          totalContextCount: 2,
+          totalScopeCount: 1,
+          totalUnusedFieldsRetainedSizeSum: 5000,
+          unmatchedContextCount: 2,
+          unmatchedContextReasonCounts: [
+            {reason: 'missing-scope-info', count: 1},
+            {reason: 'unparseable-source', count: 1},
+          ],
+        },
+        scopes: [
+          {
+            scopeInfoNodeIndex: 30,
+            scopeInfoNodeId: 303,
+            scriptId: 7,
+            scriptNodeId: 301,
+            scriptName: 'test.js',
+            scopeStart: 14,
+            scopeEnd: 104,
+            contextFieldCount: 4,
+            contexts: [
+              {
+                contextNodeIndex: 11,
+                contextNodeId: 102,
+                retainedSize: 6000,
+                unusedFieldsRetainedSizeSum: 3000,
+                unusedFields: [
+                  {
+                    name: 'unused',
+                    valueNodeIndex: 80,
+                    valueNodeId: 204,
+                    valueName: 'LargeCache',
+                    valueType: 'object',
+                    selfSize: 300,
+                    retainedSize: 3000,
+                  },
+                ],
+              },
+              {
+                contextNodeIndex: 10,
+                contextNodeId: 101,
+                retainedSize: 5000,
+                unusedFieldsRetainedSizeSum: 2000,
+                unusedFields: [
+                  {
+                    name: 'unused',
+                    valueNodeIndex: 50,
+                    valueNodeId: 202,
+                    valueName: 'stale value',
+                    valueType: 'string',
+                    selfSize: 200,
+                    retainedSize: 2000,
+                  },
+                ],
+              },
+            ],
+            unusedFieldsRetainedSizeSum: 5000,
+          },
+        ],
+      };
+
+      const result = HeapSnapshotFormatter.formatContextAnalysis(report);
+      const expected = [
+        'Found 2 live contexts with unused fields across 1 source scope.',
+        `Unused-field retained-size score: ${formatBytesToKb(5000)}`,
+        'The score ranks investigation candidates; it is not an estimate of reclaimable memory.',
+        '',
+        '#### Scope in `test.js`',
+        'Script @301, ScopeInfo @303, offsets 14-104',
+        '',
+        '##### Context @102',
+        '1 of 4 context fields unused',
+        `Unused-field score: ${formatBytesToKb(3000)}`,
+        `- \`unused\` — ${formatBytesToKb(3000)}; value \`LargeCache\` (object, @204)`,
+        '',
+        '##### Context @101',
+        '1 of 4 context fields unused',
+        `Unused-field score: ${formatBytesToKb(2000)}`,
+        `- \`unused\` — ${formatBytesToKb(2000)}; value \`stale value\` (string, @202)`,
+        '',
+        'Unmatched contexts: 2 (missing scope metadata: 1, unparseable source text: 1).',
+      ].join('\n');
+
+      assert.strictEqual(result, expected);
+    });
+
+    it('reports when there are no contexts with unused fields', () => {
+      const report: ContextAnalysisReport = {
+        summary: {
+          totalContextCount: 0,
+          totalScopeCount: 0,
+          totalUnusedFieldsRetainedSizeSum: 0,
+          unmatchedContextCount: 0,
+          unmatchedContextReasonCounts: [],
+        },
+        scopes: [],
+      };
+
+      const result = HeapSnapshotFormatter.formatContextAnalysis(report);
+
+      assert.strictEqual(
+        result,
+        'No live contexts with unused fields were found.',
+      );
     });
   });
 });

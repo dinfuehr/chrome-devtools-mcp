@@ -15,7 +15,8 @@ import sinon from 'sinon';
 import type {ParsedArguments} from '../src/config/mcp-options.js';
 import type {McpContext} from '../src/McpContext.js';
 import type {McpResponse} from '../src/McpResponse.js';
-import type {Extension} from '../src/third_party/index.js';
+import type {DevTools} from '../src/third_party/index.js';
+import {type Extension} from '../src/third_party/index.js';
 import {
   closePage,
   listPages,
@@ -637,6 +638,91 @@ describe('McpResponse network request filtering', () => {
       const {content, structuredContent} = await response.handle(context);
       t.assert.snapshot(getTextContent(content[0]));
       t.assert.snapshot(stabilizeStructuredContent(structuredContent));
+    });
+  });
+});
+
+describe('McpResponse context field usage pagination', () => {
+  it('returns the first 20 contexts by default', async () => {
+    const contexts: DevTools.HeapSnapshotModel.HeapSnapshotModel.ContextAnalysis[] =
+      [];
+    for (let index = 0; index < 21; index++) {
+      contexts.push({
+        contextNodeIndex: index,
+        contextNodeId: 1000 + index,
+        retainedSize: 3000 - index,
+        unusedFieldsRetainedSizeSum: 2100 - index * 100,
+        unusedFields: [
+          {
+            name: 'unused',
+            valueNodeIndex: 100 + index,
+            valueNodeId: 2000 + index,
+            valueName: 'RetainedObject',
+            valueType: 'object',
+            selfSize: 10,
+            retainedSize: 2100 - index * 100,
+          },
+        ],
+      });
+    }
+    const analysis: DevTools.HeapSnapshotModel.HeapSnapshotModel.ContextAnalysisResult =
+      {
+        scopes: [
+          {
+            scopeInfoNodeIndex: 30,
+            scopeInfoNodeId: 3000,
+            scriptId: 7,
+            scriptNodeId: 7000,
+            scriptName: 'test.js',
+            scopeStart: 0,
+            scopeEnd: 100,
+            contextFieldCount: 5,
+            contexts,
+            unusedFieldsRetainedSizeSum: contexts.reduce(
+              (sum, context) => sum + context.unusedFieldsRetainedSizeSum,
+              0,
+            ),
+          },
+        ],
+        unmatchedContexts: [
+          {
+            contextNodeIndex: 40,
+            contextNodeId: 1040,
+            reason: 'missing-scope-info',
+          },
+          {
+            contextNodeIndex: 41,
+            contextNodeId: 1041,
+            reason: 'missing-scope-info',
+          },
+          {
+            contextNodeIndex: 42,
+            contextNodeId: 1042,
+            reason: 'missing-source-scope',
+          },
+        ],
+      };
+
+    await withMcpContext(async (response, context) => {
+      response.setHeapSnapshotContextAnalysis(analysis);
+      const {content, structuredContent} = await response.handle(context);
+      const text = getTextContent(content[0]);
+      const structuredText = JSON.stringify(structuredContent);
+
+      assert.match(text, /Showing 1-20 of 21 \(Page 1 of 2\)\./);
+      assert.match(text, /Next page: 1/);
+      assert.match(text, /Found 21 live contexts/);
+      assert.match(text, /Context @1019/);
+      assert.match(text, /1 of 5 context fields unused/);
+      assert.match(text, /value `RetainedObject` \(object, @2019\)/);
+      assert.doesNotMatch(text, /Context @1020/);
+      assert.match(
+        text,
+        /Unmatched contexts: 3 \(missing scope metadata: 2, source scope not found: 1\)\./,
+      );
+      assert.doesNotMatch(structuredText, /"unmatchedContexts":/);
+      assert.match(structuredText, /"unmatchedContextCount":3/);
+      assert.doesNotMatch(structuredText, /"contextNodeId":1020/);
     });
   });
 });

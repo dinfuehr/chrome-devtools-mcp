@@ -27,6 +27,39 @@ export type Commands = Record<
   }
 >;
 export const commands: Commands = {
+  analyze_heapsnapshot_contexts: {
+    description:
+      'Loads a memory heapsnapshot and reports JavaScript closure contexts containing unused captured fields, ranked by the retained size of values held in those fields. Returns 20 contexts per page by default. Retained size is a ranking heuristic, not the number of bytes that would be reclaimed. (requires flag: --memoryDebugging=true)',
+    category: 'Memory',
+    args: {
+      filePath: {
+        name: 'filePath',
+        type: 'string',
+        description: 'A path to a .heapsnapshot file to read.',
+        required: true,
+      },
+      minRetainedSize: {
+        name: 'minRetainedSize',
+        type: 'number',
+        description:
+          'Minimum unused-field retained-size score in bytes for returned contexts.',
+        required: false,
+      },
+      pageIdx: {
+        name: 'pageIdx',
+        type: 'integer',
+        description: 'The zero-based page index. Defaults to 0.',
+        required: false,
+      },
+      pageSize: {
+        name: 'pageSize',
+        type: 'integer',
+        description:
+          'The number of contexts to return per page. Defaults to 20.',
+        required: false,
+      },
+    },
+  },
   click: {
     description: 'Clicks on the provided element',
     category: 'Input automation',

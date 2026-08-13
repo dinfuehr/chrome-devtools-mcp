@@ -39,8 +39,9 @@
   - [`take_snapshot`](#take_snapshot)
   - [`screencast_start`](#screencast_start)
   - [`screencast_stop`](#screencast_stop)
-- **[Memory](#memory)** (13 tools)
+- **[Memory](#memory)** (14 tools)
   - [`take_heapsnapshot`](#take_heapsnapshot)
+  - [`analyze_heapsnapshot_contexts`](#analyze_heapsnapshot_contexts)
   - [`close_heapsnapshot`](#close_heapsnapshot)
   - [`compare_heapsnapshots`](#compare_heapsnapshots)
   - [`get_heapsnapshot_class_nodes`](#get_heapsnapshot_class_nodes)
@@ -489,6 +490,19 @@ in the DevTools Elements panel (if any).
 
 - **filePath** (string) **(required)**: A path to a .heapsnapshot file to save the heapsnapshot to.
 - **pageId** (number) **(required)**: Targets a specific page by ID.
+
+---
+
+### `analyze_heapsnapshot_contexts`
+
+**Description:** Loads a memory heapsnapshot and reports JavaScript closure contexts containing unused captured fields, ranked by the retained size of values held in those fields. Returns 20 contexts per page by default. Retained size is a ranking heuristic, not the number of bytes that would be reclaimed. (requires flag: --memoryDebugging=true)
+
+**Parameters:**
+
+- **filePath** (string) **(required)**: A path to a .heapsnapshot file to read.
+- **minRetainedSize** (number) _(optional)_: Minimum unused-field retained-size score in bytes for returned contexts.
+- **pageIdx** (integer) _(optional)_: The zero-based page index. Defaults to 0.
+- **pageSize** (integer) _(optional)_: The number of contexts to return per page. Defaults to 20.
 
 ---
 

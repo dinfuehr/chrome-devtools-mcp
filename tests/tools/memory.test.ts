@@ -25,6 +25,7 @@ import {
   getHeapSnapshotDuplicateStrings,
   getHeapSnapshotObjectDetails,
   queryHeapSnapshotObjects,
+  analyzeHeapSnapshotContexts,
 } from '../../src/tools/memory.js';
 import {parseByteSizeRange} from '../../src/utils/bytes.js';
 import {stableIdSymbol} from '../../src/utils/id.js';
@@ -304,6 +305,144 @@ describe('memory', () => {
           .join('\n');
 
         t.assert.snapshot(output);
+      });
+    });
+  });
+
+  describe('analyze_heapsnapshot_contexts', () => {
+    it('reports contexts with unused fields', async () => {
+      await withMcpContext(async (response, context) => {
+        const filePath = join(
+          process.cwd(),
+          'tests/fixtures/unused-context-fields.heapsnapshot',
+        );
+        const analysis = await context.analyzeHeapSnapshotContexts(filePath);
+
+        await analyzeHeapSnapshotContexts.handler(
+          {
+            params: {
+              filePath,
+              minRetainedSize: 0,
+              pageIdx: 0,
+              pageSize: 1,
+            },
+          },
+          response,
+          context,
+        );
+
+        const responseData = await response.handle(context);
+        const output = responseData.content
+          .map(c => (c.type === 'text' ? c.text : ''))
+          .join('\n');
+
+        assert.match(output, /### Context Field Usage/);
+        assert.match(
+          output,
+          /#### Scope `createClosureWithUnusedContextField` in `tests\/fixtures\/unused-context-fields\.js`\nScript @\d+, ScopeInfo @\d+, offsets \d+-\d+/,
+        );
+        assert.match(output, /##### Context @\d+/);
+        assert.match(output, /\d+ of \d+ context fields unused/);
+        assert.match(output, /`unused` — .*; value `.*` \(.*, @\d+\)/);
+        assert.doesNotMatch(output, /Used fields:/);
+        assert.doesNotMatch(output, /Unused fields:/);
+        assert.doesNotMatch(output, /Unknown fields:/);
+        assert.match(output, /Showing 1-1 of 1 \(Page 1 of 1\)\./);
+        assert.ok(
+          'heapSnapshotContextAnalysis' in responseData.structuredContent,
+        );
+        assert.doesNotMatch(
+          JSON.stringify(responseData.structuredContent),
+          /"unmatchedContexts":/,
+        );
+        for (const scope of analysis.scopes) {
+          for (const contextUsage of scope.contexts) {
+            assert.notEqual(contextUsage.unusedFields.length, 0);
+          }
+        }
+      });
+    });
+
+    it('uses the closures that are live for each context instance', async () => {
+      await withMcpContext(async (_response, context) => {
+        const filePath = join(
+          process.cwd(),
+          'tests/fixtures/dead-closure-context-fields.heapsnapshot',
+        );
+        const analysis = await context.analyzeHeapSnapshotContexts(filePath);
+        const scope = analysis.scopes.find(candidate =>
+          candidate.contexts.some(contextUsage =>
+            contextUsage.unusedFields.some(
+              field => field.name === 'usedOnlyByDeadClosure',
+            ),
+          ),
+        );
+        if (!scope) {
+          throw new Error('Expected the fixture scope to be reported');
+        }
+        const contextUsage = scope.contexts.find(candidate =>
+          candidate.unusedFields.some(
+            field => field.name === 'usedOnlyByDeadClosure',
+          ),
+        );
+        if (!contextUsage) {
+          throw new Error('Expected the fixture context to be reported');
+        }
+
+        const deadField = contextUsage.unusedFields.find(
+          field => field.name === 'usedOnlyByDeadClosure',
+        );
+        const liveField = contextUsage.unusedFields.find(
+          field => field.name === 'usedByLiveClosure',
+        );
+        if (!deadField) {
+          throw new Error('Expected the unused fixture field to be reported');
+        }
+
+        assert.equal(liveField, undefined);
+      });
+    });
+
+    it('filters contexts by unused-field retained-size score', async () => {
+      await withMcpContext(async (response, context) => {
+        const filePath = join(
+          process.cwd(),
+          'tests/fixtures/unused-context-fields.heapsnapshot',
+        );
+        const analysis = await context.analyzeHeapSnapshotContexts(filePath);
+        const contextScores = analysis.scopes.flatMap(scope =>
+          scope.contexts.map(context => context.unusedFieldsRetainedSizeSum),
+        );
+        if (contextScores.length === 0) {
+          throw new Error('Expected the fixture to contain a context');
+        }
+        const largestContextScore = Math.max(...contextScores);
+
+        await analyzeHeapSnapshotContexts.handler(
+          {
+            params: {
+              filePath,
+              minRetainedSize: largestContextScore + 1,
+            },
+          },
+          response,
+          context,
+        );
+
+        const responseData = await response.handle(context);
+        const output = responseData.content
+          .map(c => (c.type === 'text' ? c.text : ''))
+          .join('\n');
+
+        assert.match(output, /Showing 0-0 of 0 \(Page 1 of 1\)\./);
+        assert.match(
+          output,
+          /No live contexts with unused fields were found\./,
+        );
+        assert.match(
+          JSON.stringify(responseData.structuredContent),
+          /"scopes":\[\]/,
+        );
       });
     });
   });

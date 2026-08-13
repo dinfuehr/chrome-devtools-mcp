@@ -8,10 +8,20 @@ import 'core-js/modules/es.promise.with-resolvers.js';
 import 'core-js/modules/es.set.union.v2.js';
 import 'core-js/proposals/iterator-helpers.js';
 
-import type {Flags, OutputMode, Result, RunnerResult} from 'lighthouse';
+import type Result from 'lighthouse/types/lhr/lhr.js';
+import type {
+  OutputMode,
+  SharedFlagsSettings,
+} from 'lighthouse/types/lhr/settings.js';
 import type {Page} from 'puppeteer-core';
 
-export type {Flags, Result, RunnerResult, OutputMode};
+export type Flags = SharedFlagsSettings;
+export type {Result, OutputMode};
+
+export interface RunnerResult {
+  lhr: Result;
+  report: string | string[];
+}
 
 export type {Options as YargsOptions} from 'yargs';
 export {default as yargs} from 'yargs';

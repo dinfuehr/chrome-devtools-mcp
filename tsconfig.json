@@ -91,6 +91,7 @@
     "third_party/devtools-frontend/node_modules/**/*",
     "third_party/devtools-frontend/**/*.test.ts",
     "third_party/devtools-frontend/**/*.test.api.ts",
+    "third_party/devtools-frontend/front_end/entrypoints/heap_snapshot_worker/fixtures/**",
     "third_party/devtools-frontend/front_end/models/trace/lantern/testing/**",
     "third_party/devtools-frontend/front_end/models/ai_assistance/skills/**",
     "third_party/devtools-frontend/front_end/models/ai_assistance/agents/**",

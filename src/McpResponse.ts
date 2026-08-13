@@ -9,6 +9,7 @@ import type {WebMCPTool} from 'puppeteer-core';
 import type {ParsedArguments} from './config/mcp-options.js';
 import {ConsoleFormatter} from './formatters/ConsoleFormatter.js';
 import {
+  type ContextAnalysisReport,
   HeapSnapshotFormatter,
   isEdgeLike,
   isNodeLike,
@@ -67,6 +68,10 @@ interface TraceInsightData {
   insightName: InsightName;
 }
 
+interface ContextAnalysisOptions extends PaginationOptions {
+  minRetainedSize?: number;
+}
+
 export class McpResponse implements Response {
   #includePages = false;
   #includeExtensionServiceWorkers = false;
@@ -98,6 +103,8 @@ export class McpResponse implements Response {
     detailedClassDiff?: HeapSnapshotDetailedClassDiff;
     duplicateStrings?: DuplicateStringGroup[];
     objectInfo?: DevTools.HeapSnapshotModel.HeapSnapshotModel.ObjectInfo;
+    contextAnalysis?: DevTools.HeapSnapshotModel.HeapSnapshotModel.ContextAnalysisResult;
+    contextAnalysisOptions?: ContextAnalysisOptions;
   };
   #networkRequestsOptions?: {
     include: boolean;
@@ -424,6 +431,18 @@ export class McpResponse implements Response {
       ...this.#heapSnapshotOptions,
       include: true,
       objectInfo,
+    };
+  }
+
+  setHeapSnapshotContextAnalysis(
+    contextAnalysis: DevTools.HeapSnapshotModel.HeapSnapshotModel.ContextAnalysisResult,
+    options?: ContextAnalysisOptions,
+  ) {
+    this.#heapSnapshotOptions = {
+      ...this.#heapSnapshotOptions,
+      include: true,
+      contextAnalysis,
+      contextAnalysisOptions: options,
     };
   }
 
@@ -803,6 +822,7 @@ export class McpResponse implements Response {
       heapSnapshotDetailedClassDiff?: HeapSnapshotDetailedClassDiff;
       heapSnapshotDuplicateStrings?: readonly DuplicateStringGroup[];
       heapSnapshotObjectDetails?: DevTools.HeapSnapshotModel.HeapSnapshotModel.ObjectInfo;
+      heapSnapshotContextAnalysis?: ContextAnalysisReport;
       extensionServiceWorkers?: object[];
       extensionPages?: object[];
       errorMessage?: string;
@@ -1260,6 +1280,88 @@ Call ${handleDialog.name} to handle it before continuing.`);
         );
         structuredContent.heapSnapshotObjectDetails = objectInfo;
       }
+      const contextAnalysis = this.#heapSnapshotOptions.contextAnalysis;
+      if (contextAnalysis) {
+        const contextAnalysisOptions =
+          this.#heapSnapshotOptions.contextAnalysisOptions;
+        const minRetainedSize = contextAnalysisOptions?.minRetainedSize ?? 0;
+        const filteredContexts: Array<{
+          scope: DevTools.HeapSnapshotModel.HeapSnapshotModel.ScopeAnalysis;
+          context: DevTools.HeapSnapshotModel.HeapSnapshotModel.ContextAnalysis;
+        }> = [];
+        const filteredScopeInfoNodeIndexes = new Set<number>();
+        let totalUnusedFieldsRetainedSizeSum = 0;
+        for (const scope of contextAnalysis.scopes) {
+          for (const context of scope.contexts) {
+            if (context.unusedFieldsRetainedSizeSum < minRetainedSize) {
+              continue;
+            }
+            filteredContexts.push({scope, context});
+            filteredScopeInfoNodeIndexes.add(scope.scopeInfoNodeIndex);
+            totalUnusedFieldsRetainedSizeSum +=
+              context.unusedFieldsRetainedSizeSum;
+          }
+        }
+        const paginationData = this.#dataWithPagination(filteredContexts, {
+          pageIdx: contextAnalysisOptions?.pageIdx ?? 0,
+          pageSize: contextAnalysisOptions?.pageSize,
+        });
+        const pageScopesByScopeInfoNodeIndex = new Map<
+          number,
+          DevTools.HeapSnapshotModel.HeapSnapshotModel.ScopeAnalysis
+        >();
+        for (const {scope, context} of paginationData.items) {
+          let pageScope = pageScopesByScopeInfoNodeIndex.get(
+            scope.scopeInfoNodeIndex,
+          );
+          if (!pageScope) {
+            pageScope = {
+              ...scope,
+              contexts: [],
+              unusedFieldsRetainedSizeSum: 0,
+            };
+            pageScopesByScopeInfoNodeIndex.set(
+              scope.scopeInfoNodeIndex,
+              pageScope,
+            );
+          }
+          pageScope.contexts.push(context);
+          pageScope.unusedFieldsRetainedSizeSum +=
+            context.unusedFieldsRetainedSizeSum;
+        }
+        const unmatchedContextReasonCounts = new Map<
+          DevTools.HeapSnapshotModel.HeapSnapshotModel.UnmatchedContextReason,
+          number
+        >();
+        for (const context of contextAnalysis.unmatchedContexts) {
+          unmatchedContextReasonCounts.set(
+            context.reason,
+            (unmatchedContextReasonCounts.get(context.reason) ?? 0) + 1,
+          );
+        }
+        const report: ContextAnalysisReport = {
+          summary: {
+            totalContextCount: filteredContexts.length,
+            totalScopeCount: filteredScopeInfoNodeIndexes.size,
+            totalUnusedFieldsRetainedSizeSum,
+            unmatchedContextCount: contextAnalysis.unmatchedContexts.length,
+            unmatchedContextReasonCounts: [...unmatchedContextReasonCounts].map(
+              ([reason, count]) => ({reason, count}),
+            ),
+          },
+          scopes: [...pageScopesByScopeInfoNodeIndex.values()],
+        };
+
+        response.push('### Context Field Usage');
+        structuredContent.pagination = paginationData.pagination;
+        response.push(...paginationData.info);
+        response.push(
+          compactEncode
+            ? compactEncode(report)
+            : HeapSnapshotFormatter.formatContextAnalysis(report),
+        );
+        structuredContent.heapSnapshotContextAnalysis = report;
+      }
     }
 
     if (data.detailedNetworkRequest) {
@@ -1422,8 +1524,9 @@ Call ${handleDialog.name} to handle it before continuing.`);
     }
 
     const {startIndex, endIndex, currentPage, totalPages} = paginationResult;
+    const displayStartIndex = data.length === 0 ? 0 : startIndex + 1;
     response.push(
-      `Showing ${startIndex + 1}-${endIndex} of ${data.length} (Page ${currentPage + 1} of ${totalPages}).`,
+      `Showing ${displayStartIndex}-${endIndex} of ${data.length} (Page ${currentPage + 1} of ${totalPages}).`,
     );
     if (pagination) {
       if (paginationResult.hasNextPage) {
