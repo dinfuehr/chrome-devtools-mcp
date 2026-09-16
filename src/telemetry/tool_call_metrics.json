@@ -710,6 +710,15 @@
       {
         "name": "object_id",
         "argType": "number"
+      },
+      {
+        "name": "truncate_names",
+        "argType": "boolean",
+        "isDeprecated": true
+      },
+      {
+        "name": "max_name_length",
+        "argType": "number"
       }
     ]
   },
@@ -756,6 +765,15 @@
       {
         "name": "page_size",
         "argType": "number"
+      },
+      {
+        "name": "truncate_names",
+        "argType": "boolean",
+        "isDeprecated": true
+      },
+      {
+        "name": "max_name_length",
+        "argType": "number"
       }
     ]
   },
@@ -764,6 +782,10 @@
     "args": [
       {
         "name": "file_path_length",
+        "argType": "number"
+      },
+      {
+        "name": "max_name_length",
         "argType": "number"
       }
     ]
@@ -808,6 +830,15 @@
       {
         "name": "max_siblings",
         "argType": "number"
+      },
+      {
+        "name": "truncate_names",
+        "argType": "boolean",
+        "isDeprecated": true
+      },
+      {
+        "name": "max_name_length",
+        "argType": "number"
       }
     ]
   },
@@ -846,6 +877,15 @@
       {
         "name": "retained_size_length",
         "argType": "number"
+      },
+      {
+        "name": "truncate_names",
+        "argType": "boolean",
+        "isDeprecated": true
+      },
+      {
+        "name": "max_name_length",
+        "argType": "number"
       }
     ]
   },
@@ -858,6 +898,15 @@
       },
       {
         "name": "node_id",
+        "argType": "number"
+      },
+      {
+        "name": "truncate_names",
+        "argType": "boolean",
+        "isDeprecated": true
+      },
+      {
+        "name": "max_name_length",
         "argType": "number"
       }
     ]
@@ -925,6 +974,15 @@
       {
         "name": "page_size",
         "argType": "number"
+      },
+      {
+        "name": "truncate_names",
+        "argType": "boolean",
+        "isDeprecated": true
+      },
+      {
+        "name": "max_name_length",
+        "argType": "number"
       }
     ]
   },
@@ -937,6 +995,15 @@
       },
       {
         "name": "node_id",
+        "argType": "number"
+      },
+      {
+        "name": "truncate_names",
+        "argType": "boolean",
+        "isDeprecated": true
+      },
+      {
+        "name": "max_name_length",
         "argType": "number"
       }
     ]
@@ -1050,6 +1117,15 @@
       },
       {
         "name": "self_size_length",
+        "argType": "number"
+      },
+      {
+        "name": "truncate_names",
+        "argType": "boolean",
+        "isDeprecated": true
+      },
+      {
+        "name": "max_name_length",
         "argType": "number"
       }
     ]

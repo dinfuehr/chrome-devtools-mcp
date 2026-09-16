@@ -538,6 +538,7 @@ in the DevTools Elements panel (if any).
 - **filePath** (string) **(required)**: A path to a .heapsnapshot file to read.
 - **id** (number) **(required)**: The ID for the class, obtained from details.
 - **filterName** (enum: "objectsRetainedByDetachedDomNodes", "objectsRetainedByConsole", "objectsRetainedByEventHandlers", "objectsRetainedByContexts", "sharedNativeContext", "noNativeContext", "attributedToSpecificNativeContext") _(optional)_: An optional filter to apply to the nodes.
+- **maxNameLength** (integer) _(optional)_: Maximum length of object/string names before they are truncated. Defaults to 100. Pass a large value (e.g. 1000000) to get full names.
 - **objectId** (number) _(optional)_: The object ID (nodeId) of the specific native context to filter by when filterName is attributedToSpecificNativeContext.
 - **pageIdx** (number) _(optional)_: The page index for pagination.
 - **pageSize** (number) _(optional)_: The page size for pagination.
@@ -566,6 +567,7 @@ in the DevTools Elements panel (if any).
 
 - **filePath** (string) **(required)**: A path to a .heapsnapshot file to read.
 - **nodeId** (number) **(required)**: The node ID to get the dominator chain for.
+- **maxNameLength** (integer) _(optional)_: Maximum length of object/string names before they are truncated. Defaults to 100. Pass a large value (e.g. 1000000) to get full names.
 
 ---
 
@@ -576,6 +578,7 @@ in the DevTools Elements panel (if any).
 **Parameters:**
 
 - **filePath** (string) **(required)**: A path to a .heapsnapshot file to read.
+- **maxNameLength** (integer) _(optional)_: Maximum length of object/string names before they are truncated. Defaults to 100. Pass a large value (e.g. 1000000) to get full names.
 - **pageIdx** (number) _(optional)_: The page index for pagination.
 - **pageSize** (number) _(optional)_: The page size for pagination.
 
@@ -590,6 +593,7 @@ in the DevTools Elements panel (if any).
 - **filePath** (string) **(required)**: A path to a .heapsnapshot file to read.
 - **nodeId** (number) **(required)**: The node ID to get outgoing edges for.
 - **excludePrimitives** (boolean) _(optional)_: Whether to exclude primitive target nodes. Default is true.
+- **maxNameLength** (integer) _(optional)_: Maximum length of object/string names before they are truncated. Defaults to 100. Pass a large value (e.g. 1000000) to get full names.
 - **pageIdx** (number) _(optional)_: The page index for pagination.
 - **pageSize** (number) _(optional)_: The page size for pagination.
 - **retainedSize** (string) _(optional)_: Inclusive retained size range (e.g. "1MB-2MB", "-1MB", or "1MB-") for target nodes. A single value is treated as a minimum. Currently, only the lower bound is applied.
@@ -605,6 +609,7 @@ in the DevTools Elements panel (if any).
 
 - **filePath** (string) **(required)**: A path to a .heapsnapshot file to read.
 - **nodeId** (number) **(required)**: The node ID to get object details for.
+- **maxNameLength** (integer) _(optional)_: Maximum length of object/string names before they are truncated. Defaults to 100. Pass a large value (e.g. 1000000) to get full names.
 
 ---
 
@@ -616,6 +621,7 @@ in the DevTools Elements panel (if any).
 
 - **filePath** (string) **(required)**: A path to a .heapsnapshot file to read.
 - **nodeId** (number) **(required)**: The node ID to get retainers for.
+- **maxNameLength** (integer) _(optional)_: Maximum length of object/string names before they are truncated. Defaults to 100. Pass a large value (e.g. 1000000) to get full names.
 - **pageIdx** (number) _(optional)_: The page index for pagination.
 - **pageSize** (number) _(optional)_: The page size for pagination.
 
@@ -630,6 +636,7 @@ in the DevTools Elements panel (if any).
 - **filePath** (string) **(required)**: A path to a .heapsnapshot file to read.
 - **nodeId** (number) **(required)**: The node ID to get retaining paths for.
 - **maxDepth** (number) _(optional)_: The maximum depth to search for retaining paths.
+- **maxNameLength** (integer) _(optional)_: Maximum length of object/string names before they are truncated. Defaults to 100. Pass a large value (e.g. 1000000) to get full names.
 - **maxNodes** (number) _(optional)_: The maximum number of nodes to return.
 - **maxSiblings** (number) _(optional)_: The maximum number of siblings to return.
 
@@ -642,6 +649,7 @@ in the DevTools Elements panel (if any).
 **Parameters:**
 
 - **filePath** (string) **(required)**: A path to a .heapsnapshot file to read.
+- **maxNameLength** (integer) _(optional)_: Maximum length of object/string names before they are truncated. Defaults to 100. Pass a large value (e.g. 1000000) to get full names.
 
 ---
 
@@ -654,6 +662,7 @@ in the DevTools Elements panel (if any).
 - **filePath** (string) **(required)**: A path to a .heapsnapshot file to read.
 - **className** (string) _(optional)_: Optional regex or text matching object class name.
 - **isDetached** (boolean) _(optional)_: Whether to filter for detached DOM nodes.
+- **maxNameLength** (integer) _(optional)_: Maximum length of object/string names before they are truncated. Defaults to 100. Pass a large value (e.g. 1000000) to get full names.
 - **nodeType** (string) _(optional)_: Optional V8 node type filter (e.g. object, closure, string, array, code).
 - **pageIdx** (number) _(optional)_: The page index for pagination.
 - **pageSize** (number) _(optional)_: The page size for pagination.

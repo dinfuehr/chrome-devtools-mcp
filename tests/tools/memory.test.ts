@@ -143,6 +143,37 @@ describe('memory', () => {
         staticData,
         nativeContextSizes,
         retainedByContextSummary,
+        {maxNameLength: undefined},
+      );
+    });
+
+    it('with maxNameLength', async () => {
+      const {context, response} = createHandlerMocks();
+      const stats = createMockHeapSnapshotStats();
+      const staticData = createMockHeapSnapshotStaticData();
+      const nativeContextSizes = createMockNativeContextSizes();
+      const retainedByContextSummary = createMockRetainedByContextSummary();
+
+      context.getHeapSnapshotStats.resolves(stats);
+      context.getHeapSnapshotStaticData.resolves(staticData);
+      context.getHeapSnapshotNativeContextSizes.resolves(nativeContextSizes);
+      context.getHeapSnapshotRetainedByContextSummary.resolves(
+        retainedByContextSummary,
+      );
+
+      await getHeapSnapshotSummary.handler(
+        {params: {filePath: 'test.heapsnapshot', maxNameLength: 500}},
+        response,
+        context,
+      );
+
+      sinon.assert.calledOnceWithExactly(
+        response.setHeapSnapshotStats,
+        stats,
+        staticData,
+        nativeContextSizes,
+        retainedByContextSummary,
+        {maxNameLength: 500},
       );
     });
   });
@@ -227,6 +258,7 @@ describe('memory', () => {
       sinon.assert.calledOnceWithExactly(response.setHeapSnapshotNodes, nodes, {
         pageIdx: undefined,
         pageSize: undefined,
+        maxNameLength: undefined,
       });
     });
 
@@ -260,6 +292,7 @@ describe('memory', () => {
       sinon.assert.calledOnceWithExactly(response.setHeapSnapshotNodes, nodes, {
         pageIdx: 2,
         pageSize: 20,
+        maxNameLength: undefined,
       });
     });
   });
@@ -284,7 +317,7 @@ describe('memory', () => {
       sinon.assert.calledOnceWithExactly(
         response.setHeapSnapshotNodes,
         retainers,
-        {pageIdx: undefined, pageSize: undefined},
+        {pageIdx: undefined, pageSize: undefined, maxNameLength: undefined},
       );
     });
 
@@ -314,7 +347,7 @@ describe('memory', () => {
       sinon.assert.calledOnceWithExactly(
         response.setHeapSnapshotNodes,
         retainers,
-        {pageIdx: 1, pageSize: 5},
+        {pageIdx: 1, pageSize: 5, maxNameLength: undefined},
       );
     });
   });
@@ -339,6 +372,31 @@ describe('memory', () => {
       sinon.assert.calledOnceWithExactly(
         response.setHeapSnapshotObjectDetails,
         objectInfo,
+        {maxNameLength: undefined},
+      );
+    });
+
+    it('with maxNameLength', async () => {
+      const {context, response} = createHandlerMocks();
+      const objectInfo = createMockObjectInfo();
+      context.getHeapSnapshotObjectDetails.resolves(objectInfo);
+
+      await getHeapSnapshotObjectDetails.handler(
+        {
+          params: {
+            filePath: 'test.heapsnapshot',
+            nodeId: 25341,
+            maxNameLength: 1000,
+          },
+        },
+        response,
+        context,
+      );
+
+      sinon.assert.calledOnceWithExactly(
+        response.setHeapSnapshotObjectDetails,
+        objectInfo,
+        {maxNameLength: 1000},
       );
     });
   });
@@ -405,6 +463,7 @@ describe('memory', () => {
       sinon.assert.calledOnceWithExactly(
         response.setHeapSnapshotRetainingPaths,
         retainingPaths,
+        {maxNameLength: undefined},
       );
     });
 
@@ -438,6 +497,7 @@ describe('memory', () => {
       sinon.assert.calledOnceWithExactly(
         response.setHeapSnapshotRetainingPaths,
         retainingPaths,
+        {maxNameLength: undefined},
       );
     });
   });
@@ -467,6 +527,7 @@ describe('memory', () => {
       sinon.assert.calledOnceWithExactly(response.setHeapSnapshotNodes, edges, {
         pageIdx: undefined,
         pageSize: undefined,
+        maxNameLength: undefined,
       });
     });
 
@@ -504,6 +565,7 @@ describe('memory', () => {
       sinon.assert.calledOnceWithExactly(response.setHeapSnapshotNodes, edges, {
         pageIdx: 0,
         pageSize: 2,
+        maxNameLength: undefined,
       });
     });
   });
@@ -528,6 +590,7 @@ describe('memory', () => {
       sinon.assert.calledOnceWithExactly(
         response.setHeapSnapshotDominators,
         dominators,
+        {maxNameLength: undefined},
       );
     });
   });
@@ -609,7 +672,7 @@ describe('memory', () => {
       sinon.assert.calledOnceWithExactly(
         response.setHeapSnapshotDuplicateStrings,
         duplicateStrings,
-        {pageIdx: undefined, pageSize: undefined},
+        {pageIdx: undefined, pageSize: undefined, maxNameLength: undefined},
       );
     });
 
@@ -637,7 +700,25 @@ describe('memory', () => {
       sinon.assert.calledOnceWithExactly(
         response.setHeapSnapshotDuplicateStrings,
         duplicateStrings,
-        {pageIdx: 2, pageSize: 10},
+        {pageIdx: 2, pageSize: 10, maxNameLength: undefined},
+      );
+    });
+
+    it('with maxNameLength', async () => {
+      const {context, response} = createHandlerMocks();
+      const duplicateStrings = createMockDuplicateStrings();
+      context.getHeapSnapshotDuplicateStrings.resolves(duplicateStrings);
+
+      await getHeapSnapshotDuplicateStrings.handler(
+        {params: {filePath: 'test.heapsnapshot', maxNameLength: 1000}},
+        response,
+        context,
+      );
+
+      sinon.assert.calledOnceWithExactly(
+        response.setHeapSnapshotDuplicateStrings,
+        duplicateStrings,
+        {pageIdx: undefined, pageSize: undefined, maxNameLength: 1000},
       );
     });
   });
@@ -672,6 +753,7 @@ describe('memory', () => {
       sinon.assert.calledOnceWithExactly(response.setHeapSnapshotNodes, range, {
         pageIdx: undefined,
         pageSize: undefined,
+        maxNameLength: undefined,
       });
     });
 
@@ -717,6 +799,31 @@ describe('memory', () => {
       sinon.assert.calledOnceWithExactly(response.setHeapSnapshotNodes, range, {
         pageIdx: 1,
         pageSize: 10,
+        maxNameLength: undefined,
+      });
+    });
+
+    it('with maxNameLength', async () => {
+      const {context, response} = createHandlerMocks();
+      const range = createMockItemsRange();
+      context.queryHeapSnapshotObjects.resolves(range);
+
+      await queryHeapSnapshotObjects.handler(
+        {
+          params: {
+            filePath: 'test.heapsnapshot',
+            pageSize: 5,
+            maxNameLength: 500,
+          },
+        },
+        response,
+        context,
+      );
+
+      sinon.assert.calledOnceWithExactly(response.setHeapSnapshotNodes, range, {
+        pageIdx: undefined,
+        pageSize: 5,
+        maxNameLength: 500,
       });
     });
   });

@@ -8,13 +8,20 @@ import assert from 'node:assert';
 import {join} from 'node:path';
 import {describe, it, before, after} from 'node:test';
 
-import {HeapSnapshotFormatter} from '../../src/formatters/HeapSnapshotFormatter.js';
+import {
+  formatName,
+  HeapSnapshotFormatter,
+  MAX_NAME_LENGTH,
+} from '../../src/formatters/HeapSnapshotFormatter.js';
 import {HeapSnapshotManager} from '../../src/processors/HeapSnapshotManager.js';
 import {DevTools} from '../../src/third_party/index.js';
 import {parseByteSizeRange} from '../../src/utils/bytes.js';
 import {stableIdSymbol} from '../../src/utils/id.js';
 
 const {formatBytesToKb} = DevTools.I18n.ByteUtilities;
+
+/** A limit no heap snapshot name will reach, i.e. truncation is disabled. */
+const LARGE_NAME_LENGTH = 1_000_000;
 
 describe('HeapSnapshotFormatter', () => {
   DevTools.I18n.DevToolsLocale.DevToolsLocale.instance({
@@ -49,6 +56,52 @@ describe('HeapSnapshotFormatter', () => {
       [stableIdSymbol]: 2,
     } as unknown as DevTools.HeapSnapshotModel.HeapSnapshotModel.AggregatedInfo,
   };
+
+  describe('formatName', () => {
+    it('returns short name unchanged', () => {
+      assert.strictEqual(formatName('shortName'), 'shortName');
+    });
+
+    it('truncates name exceeding MAX_NAME_LENGTH', () => {
+      const longName = 'a'.repeat(150);
+      const expected = 'a'.repeat(MAX_NAME_LENGTH) + '...';
+      assert.strictEqual(formatName(longName), expected);
+    });
+
+    it('escapes newlines in name', () => {
+      assert.strictEqual(
+        formatName('first\r\nsecond\nthird\rfourth'),
+        'first\\r\\nsecond\\nthird\\rfourth',
+      );
+    });
+
+    it('respects a custom maxNameLength', () => {
+      assert.strictEqual(
+        formatName('abcdefghij', {maxNameLength: 5}),
+        'abcde...',
+      );
+    });
+
+    it('does not split surrogate pairs', () => {
+      assert.strictEqual(formatName('😀😀😀', {maxNameLength: 2}), '😀😀...');
+    });
+
+    it('does not truncate when maxNameLength is large', () => {
+      const longName = 'a'.repeat(150);
+      assert.strictEqual(
+        formatName(longName, {maxNameLength: LARGE_NAME_LENGTH}),
+        longName,
+      );
+    });
+
+    it('escapes newlines even when maxNameLength is large', () => {
+      const nameWithNewlines = 'line1\r\nline2\nline3\rline4';
+      assert.strictEqual(
+        formatName(nameWithNewlines, {maxNameLength: LARGE_NAME_LENGTH}),
+        'line1\\r\\nline2\\nline3\\rline4',
+      );
+    });
+  });
 
   describe('toString', () => {
     it('formats data as CSV and sorts by retained size', t => {
@@ -129,6 +182,90 @@ describe('HeapSnapshotFormatter', () => {
         'name,type,nodeId,nodeName,selfSize,retainedSize',
         'edge1,property,1,NodeA,0.0 kB,0.0 kB',
         'edge2,element,2,NodeB,0.0 kB,0.0 kB',
+      ].join('\n');
+
+      assert.strictEqual(result, expected);
+    });
+
+    it('truncates long node names and escapes newlines for nodes', () => {
+      const longNodeName = 'node_\n_' + 'a'.repeat(150);
+      const mockNodes = [
+        new DevTools.HeapSnapshotModel.HeapSnapshotModel.Node(
+          1,
+          longNodeName,
+          2,
+          0,
+          1000,
+          100,
+          'string',
+        ),
+      ];
+
+      const result = HeapSnapshotFormatter.formatNodes(mockNodes);
+      const expectedName = 'node_\\n_' + 'a'.repeat(93) + '...';
+      const expected = [
+        'nodeId,nodeName,type,distance,selfSize,retainedSize',
+        `1,${expectedName},string,2,${formatBytesToKb(100)},${formatBytesToKb(1000)}`,
+      ].join('\n');
+
+      assert.strictEqual(result, expected);
+    });
+
+    it('does not truncate node names when maxNameLength is large', () => {
+      const longNodeName = 'node_\n_' + 'a'.repeat(150);
+      const mockNodes = [
+        new DevTools.HeapSnapshotModel.HeapSnapshotModel.Node(
+          1,
+          longNodeName,
+          2,
+          0,
+          1000,
+          100,
+          'string',
+        ),
+      ];
+
+      const result = HeapSnapshotFormatter.formatNodes(mockNodes, {
+        maxNameLength: LARGE_NAME_LENGTH,
+      });
+      const expectedName = 'node_\\n_' + 'a'.repeat(150);
+      const expected = [
+        'nodeId,nodeName,type,distance,selfSize,retainedSize',
+        `1,${expectedName},string,2,${formatBytesToKb(100)},${formatBytesToKb(1000)}`,
+      ].join('\n');
+
+      assert.strictEqual(result, expected);
+    });
+
+    it('does not truncate edge names when maxNameLength is large', () => {
+      const longEdgeName = 'edge_\r\n_' + 'e'.repeat(150);
+      const longNodeName = 'target_\n_' + 'n'.repeat(150);
+      const node = new DevTools.HeapSnapshotModel.HeapSnapshotModel.Node(
+        5,
+        longNodeName,
+        1,
+        0,
+        500,
+        50,
+        'object',
+      );
+      const mockEdges = [
+        new DevTools.HeapSnapshotModel.HeapSnapshotModel.Edge(
+          longEdgeName,
+          node,
+          'property',
+          0,
+        ),
+      ];
+
+      const result = HeapSnapshotFormatter.formatNodes(mockEdges, {
+        maxNameLength: LARGE_NAME_LENGTH,
+      });
+      const expectedEdgeName = 'edge_\\r\\n_' + 'e'.repeat(150);
+      const expectedNodeName = 'target_\\n_' + 'n'.repeat(150);
+      const expected = [
+        'name,type,nodeId,nodeName,selfSize,retainedSize',
+        `${expectedEdgeName},property,5,${expectedNodeName},${formatBytesToKb(50)},${formatBytesToKb(500)}`,
       ].join('\n');
 
       assert.strictEqual(result, expected);
@@ -258,6 +395,60 @@ describe('HeapSnapshotFormatter', () => {
 
       assert.strictEqual(result, expected);
     });
+
+    it('truncates long node and edge names and escapes newlines', () => {
+      const longEdgeName = 'edge_\n_' + 'e'.repeat(150);
+      const longNodeName = 'node_\r\n_' + 'n'.repeat(150);
+      const mockRetainingPaths: DevTools.HeapSnapshotModel.HeapSnapshotModel.RetainingEdge[] =
+        [
+          {
+            edgeIndex: 0,
+            edgeName: longEdgeName,
+            edgeType: 'property',
+            nodeId: 10,
+            nodeIndex: 1,
+            nodeName: longNodeName,
+            distance: 1,
+            children: [],
+          },
+        ];
+
+      const result =
+        HeapSnapshotFormatter.formatRetainingPaths(mockRetainingPaths);
+      const expectedEdgeName = 'edge_\\n_' + 'e'.repeat(93) + '...';
+      const expectedNodeName = 'node_\\r\\n_' + 'n'.repeat(92) + '...';
+      const expected = `<- @10 ${expectedNodeName} via property ${expectedEdgeName} (distance: 1)`;
+
+      assert.strictEqual(result, expected);
+    });
+
+    it('does not truncate node and edge names when maxNameLength is large', () => {
+      const longEdgeName = 'edge_\n_' + 'e'.repeat(150);
+      const longNodeName = 'node_\r\n_' + 'n'.repeat(150);
+      const mockRetainingPaths: DevTools.HeapSnapshotModel.HeapSnapshotModel.RetainingEdge[] =
+        [
+          {
+            edgeIndex: 0,
+            edgeName: longEdgeName,
+            edgeType: 'property',
+            nodeId: 10,
+            nodeIndex: 1,
+            nodeName: longNodeName,
+            distance: 1,
+            children: [],
+          },
+        ];
+
+      const result = HeapSnapshotFormatter.formatRetainingPaths(
+        mockRetainingPaths,
+        {maxNameLength: LARGE_NAME_LENGTH},
+      );
+      const expectedEdgeName = 'edge_\\n_' + 'e'.repeat(150);
+      const expectedNodeName = 'node_\\r\\n_' + 'n'.repeat(150);
+      const expected = `<- @10 ${expectedNodeName} via property ${expectedEdgeName} (distance: 1)`;
+
+      assert.strictEqual(result, expected);
+    });
   });
 
   describe('formatDominators', () => {
@@ -297,6 +488,54 @@ describe('HeapSnapshotFormatter', () => {
       const expected = 'nodeId,nodeName,selfSize,retainedSize';
       assert.strictEqual(result, expected);
     });
+
+    it('truncates long nodeName and escapes newlines', () => {
+      const longNodeName = 'dom_\n_' + 'd'.repeat(150);
+      const mockDominators: DevTools.HeapSnapshotModel.HeapSnapshotModel.DominatorChain =
+        [
+          {
+            nodeId: 10,
+            nodeIndex: 1,
+            nodeName: longNodeName,
+            retainedSize: 1000,
+            selfSize: 100,
+          },
+        ];
+
+      const result = HeapSnapshotFormatter.formatDominators(mockDominators);
+      const expectedNodeName = 'dom_\\n_' + 'd'.repeat(94) + '...';
+      const expected = [
+        'nodeId,nodeName,selfSize,retainedSize',
+        `10,${expectedNodeName},${formatBytesToKb(100)},${formatBytesToKb(1000)}`,
+      ].join('\n');
+
+      assert.strictEqual(result, expected);
+    });
+
+    it('does not truncate nodeName when maxNameLength is large', () => {
+      const longNodeName = 'dom_\n_' + 'd'.repeat(150);
+      const mockDominators: DevTools.HeapSnapshotModel.HeapSnapshotModel.DominatorChain =
+        [
+          {
+            nodeId: 10,
+            nodeIndex: 1,
+            nodeName: longNodeName,
+            retainedSize: 1000,
+            selfSize: 100,
+          },
+        ];
+
+      const result = HeapSnapshotFormatter.formatDominators(mockDominators, {
+        maxNameLength: LARGE_NAME_LENGTH,
+      });
+      const expectedNodeName = 'dom_\\n_' + 'd'.repeat(150);
+      const expected = [
+        'nodeId,nodeName,selfSize,retainedSize',
+        `10,${expectedNodeName},${formatBytesToKb(100)},${formatBytesToKb(1000)}`,
+      ].join('\n');
+
+      assert.strictEqual(result, expected);
+    });
   });
 
   describe('formatNativeContextSizes', () => {
@@ -332,6 +571,243 @@ describe('HeapSnapshotFormatter', () => {
         `10,system / NativeContext,${formatBytesToKb(100)},${formatBytesToKb(1000)},${formatBytesToKb(500)}`,
         `Shared Size: ${formatBytesToKb(300)}`,
         `Unattributed Size: ${formatBytesToKb(400)}`,
+      ].join('\n');
+
+      assert.strictEqual(result, expected);
+    });
+
+    it('truncates long native context names and escapes newlines', () => {
+      const longContextName = 'system / NativeContext / \n' + 'u'.repeat(150);
+      const mockSizes: DevTools.HeapSnapshotModel.HeapSnapshotModel.NativeContextSizes =
+        {
+          nativeContexts: [
+            {
+              nodeId: 10,
+              nodeIndex: 1,
+              nodeName: longContextName,
+              attributedSize: 500,
+              retainedSize: 1000,
+              selfSize: 100,
+            },
+          ],
+          sharedSize: 300,
+          noAttributionSize: 400,
+        };
+
+      const result = HeapSnapshotFormatter.formatNativeContextSizes(mockSizes);
+      const expectedContextName =
+        'system / NativeContext / \\n' + 'u'.repeat(74) + '...';
+      const expected = [
+        'nodeId,nodeName,selfSize,retainedSize,attributedSize',
+        `10,${expectedContextName},${formatBytesToKb(100)},${formatBytesToKb(1000)},${formatBytesToKb(500)}`,
+        `Shared Size: ${formatBytesToKb(300)}`,
+        `Unattributed Size: ${formatBytesToKb(400)}`,
+      ].join('\n');
+
+      assert.strictEqual(result, expected);
+    });
+
+    it('does not truncate native context names when maxNameLength is large', () => {
+      const longContextName = 'system / NativeContext / \n' + 'u'.repeat(150);
+      const mockSizes: DevTools.HeapSnapshotModel.HeapSnapshotModel.NativeContextSizes =
+        {
+          nativeContexts: [
+            {
+              nodeId: 10,
+              nodeIndex: 1,
+              nodeName: longContextName,
+              attributedSize: 500,
+              retainedSize: 1000,
+              selfSize: 100,
+            },
+          ],
+          sharedSize: 300,
+          noAttributionSize: 400,
+        };
+
+      const result = HeapSnapshotFormatter.formatNativeContextSizes(mockSizes, {
+        maxNameLength: LARGE_NAME_LENGTH,
+      });
+      const expectedContextName =
+        'system / NativeContext / \\n' + 'u'.repeat(150);
+      const expected = [
+        'nodeId,nodeName,selfSize,retainedSize,attributedSize',
+        `10,${expectedContextName},${formatBytesToKb(100)},${formatBytesToKb(1000)},${formatBytesToKb(500)}`,
+        `Shared Size: ${formatBytesToKb(300)}`,
+        `Unattributed Size: ${formatBytesToKb(400)}`,
+      ].join('\n');
+
+      assert.strictEqual(result, expected);
+    });
+  });
+
+  describe('formatDuplicateStrings', () => {
+    it('truncates long duplicate string values without changing the truncated flag', () => {
+      const longString = 'str_' + 's'.repeat(150);
+      const mockGroups: DevTools.HeapSnapshotModel.HeapSnapshotModel.DuplicateStringGroup[] =
+        [
+          {
+            value: longString,
+            count: 2,
+            totalSelfSize: 200,
+            totalRetainedSize: 200,
+            nodes: [
+              {id: 1, selfSize: 100, retainedSize: 100, distance: 1},
+              {id: 2, selfSize: 100, retainedSize: 100, distance: 1},
+            ],
+          },
+        ];
+
+      const result = HeapSnapshotFormatter.formatDuplicateStrings(mockGroups);
+      const expectedValue = JSON.stringify('str_' + 's'.repeat(96) + '...');
+      const expected = [
+        'value,count,totalSelfSize,totalRetainedSize,truncated,nodeIds',
+        `${expectedValue},2,${formatBytesToKb(200)},${formatBytesToKb(200)},false,@1 @2`,
+      ].join('\n');
+
+      assert.strictEqual(result, expected);
+    });
+
+    it('reports values truncated by the snapshot itself', () => {
+      const mockGroups: DevTools.HeapSnapshotModel.HeapSnapshotModel.DuplicateStringGroup[] =
+        [
+          {
+            value: 'short string',
+            count: 2,
+            totalSelfSize: 20,
+            totalRetainedSize: 20,
+            truncated: true,
+            nodes: [{id: 1, selfSize: 10, retainedSize: 10, distance: 1}],
+          },
+        ];
+
+      const result = HeapSnapshotFormatter.formatDuplicateStrings(mockGroups);
+      const expected = [
+        'value,count,totalSelfSize,totalRetainedSize,truncated,nodeIds',
+        `"short string",2,${formatBytesToKb(20)},${formatBytesToKb(20)},true,@1`,
+      ].join('\n');
+
+      assert.strictEqual(result, expected);
+    });
+
+    it('keeps short duplicate string value and original truncated flag', () => {
+      const mockGroups: DevTools.HeapSnapshotModel.HeapSnapshotModel.DuplicateStringGroup[] =
+        [
+          {
+            value: 'short string',
+            count: 2,
+            totalSelfSize: 20,
+            totalRetainedSize: 20,
+            truncated: false,
+            nodes: [{id: 1, selfSize: 10, retainedSize: 10, distance: 1}],
+          },
+        ];
+
+      const result = HeapSnapshotFormatter.formatDuplicateStrings(mockGroups);
+      const expected = [
+        'value,count,totalSelfSize,totalRetainedSize,truncated,nodeIds',
+        `"short string",2,${formatBytesToKb(20)},${formatBytesToKb(20)},false,@1`,
+      ].join('\n');
+
+      assert.strictEqual(result, expected);
+    });
+
+    it('does not truncate duplicate string values when maxNameLength is large', () => {
+      const longString = 'str_' + 's'.repeat(150);
+      const mockGroups: DevTools.HeapSnapshotModel.HeapSnapshotModel.DuplicateStringGroup[] =
+        [
+          {
+            value: longString,
+            count: 2,
+            totalSelfSize: 200,
+            totalRetainedSize: 200,
+            truncated: false,
+            nodes: [
+              {id: 1, selfSize: 100, retainedSize: 100, distance: 1},
+              {id: 2, selfSize: 100, retainedSize: 100, distance: 1},
+            ],
+          },
+        ];
+
+      const result = HeapSnapshotFormatter.formatDuplicateStrings(mockGroups, {
+        maxNameLength: LARGE_NAME_LENGTH,
+      });
+      const expectedValue = JSON.stringify(longString);
+      const expected = [
+        'value,count,totalSelfSize,totalRetainedSize,truncated,nodeIds',
+        `${expectedValue},2,${formatBytesToKb(200)},${formatBytesToKb(200)},false,@1 @2`,
+      ].join('\n');
+
+      assert.strictEqual(result, expected);
+    });
+  });
+
+  describe('formatObjectInfo', () => {
+    it('truncates long object names and escapes newlines', () => {
+      const longName = 'Object_\n_' + 'x'.repeat(150);
+      const mockInfo: DevTools.HeapSnapshotModel.HeapSnapshotModel.ObjectInfo =
+        {
+          id: 123,
+          name: longName,
+          type: 'object',
+          nodeIndex: 0,
+          detachedness:
+            DevTools.HeapSnapshotModel.HeapSnapshotModel.DOMLinkState.UNKNOWN,
+          selfSize: 100,
+          retainedSize: 200,
+          distance: 1,
+          edgeCount: 2,
+          retainerCount: 3,
+        };
+
+      const result = HeapSnapshotFormatter.formatObjectInfo(mockInfo);
+      const expectedName = 'Object_\\n_' + 'x'.repeat(91) + '...';
+      const expected = [
+        'id: @123',
+        `name: ${expectedName}`,
+        'type: object',
+        'detachedness: unknown',
+        `selfSize: ${formatBytesToKb(100)}`,
+        `retainedSize: ${formatBytesToKb(200)}`,
+        'distance: 1',
+        'edgeCount: 2',
+        'retainerCount: 3',
+      ].join('\n');
+
+      assert.strictEqual(result, expected);
+    });
+
+    it('does not truncate object name when maxNameLength is large', () => {
+      const longName = 'Object_\n_' + 'x'.repeat(150);
+      const mockInfo: DevTools.HeapSnapshotModel.HeapSnapshotModel.ObjectInfo =
+        {
+          id: 123,
+          name: longName,
+          type: 'object',
+          nodeIndex: 0,
+          detachedness:
+            DevTools.HeapSnapshotModel.HeapSnapshotModel.DOMLinkState.UNKNOWN,
+          selfSize: 100,
+          retainedSize: 200,
+          distance: 1,
+          edgeCount: 2,
+          retainerCount: 3,
+        };
+
+      const result = HeapSnapshotFormatter.formatObjectInfo(mockInfo, {
+        maxNameLength: LARGE_NAME_LENGTH,
+      });
+      const expectedName = 'Object_\\n_' + 'x'.repeat(150);
+      const expected = [
+        'id: @123',
+        `name: ${expectedName}`,
+        'type: object',
+        'detachedness: unknown',
+        `selfSize: ${formatBytesToKb(100)}`,
+        `retainedSize: ${formatBytesToKb(200)}`,
+        'distance: 1',
+        'edgeCount: 2',
+        'retainerCount: 3',
       ].join('\n');
 
       assert.strictEqual(result, expected);

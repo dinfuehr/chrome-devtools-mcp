@@ -15,6 +15,51 @@ import {stableIdSymbol} from '../utils/id.js';
 
 const {formatBytesToKb} = DevTools.I18n.ByteUtilities;
 
+export const MAX_NAME_LENGTH = 100;
+
+export interface HeapSnapshotFormatOptions {
+  /**
+   * Values longer than this are truncated. Defaults to `MAX_NAME_LENGTH`. Pass
+   * a large value to get untruncated values.
+   */
+  maxNameLength?: number;
+}
+
+/**
+ * Truncates `value` to `maxNameLength`, appending an ellipsis if it was cut
+ * off. Truncates on code point boundaries to avoid emitting lone surrogates.
+ */
+export function truncateValue(
+  value: string,
+  options?: HeapSnapshotFormatOptions,
+): {value: string; truncated: boolean} {
+  const maxLength = options?.maxNameLength ?? MAX_NAME_LENGTH;
+  if (value.length <= maxLength) {
+    return {value, truncated: false};
+  }
+  const codePoints = Array.from(value);
+  if (codePoints.length <= maxLength) {
+    return {value, truncated: false};
+  }
+  return {
+    value: codePoints.slice(0, maxLength).join('') + '...',
+    truncated: true,
+  };
+}
+
+/**
+ * Renders a name for single-line output: the name is truncated to
+ * `maxNameLength` and line breaks are always escaped.
+ */
+export function formatName(
+  name: string,
+  options?: HeapSnapshotFormatOptions,
+): string {
+  return truncateValue(name, options)
+    .value.replaceAll('\r', '\\r')
+    .replaceAll('\n', '\\n');
+}
+
 export interface FormattedSnapshotEntry {
   className: string;
   id?: number;
@@ -59,6 +104,7 @@ export class HeapSnapshotFormatter {
       | DevTools.HeapSnapshotModel.HeapSnapshotModel.Node
       | DevTools.HeapSnapshotModel.HeapSnapshotModel.Edge
     >,
+    options?: HeapSnapshotFormatOptions,
   ): string {
     const lines: string[] = [];
 
@@ -74,11 +120,11 @@ export class HeapSnapshotFormatter {
     for (const item of items) {
       if (isNodeLike(item)) {
         lines.push(
-          `${item.id},${item.name},${item.type},${item.distance},${formatBytesToKb(item.selfSize)},${formatBytesToKb(item.retainedSize)}`,
+          `${item.id},${formatName(item.name, options)},${item.type},${item.distance},${formatBytesToKb(item.selfSize)},${formatBytesToKb(item.retainedSize)}`,
         );
       } else if (isEdgeLike(item)) {
         lines.push(
-          `${item.name},${item.type},${item.node.id},${item.node.name},${formatBytesToKb(item.node.selfSize)},${formatBytesToKb(item.node.retainedSize)}`,
+          `${formatName(item.name, options)},${item.type},${item.node.id},${formatName(item.node.name, options)},${formatBytesToKb(item.node.selfSize)},${formatBytesToKb(item.node.retainedSize)}`,
         );
       }
     }
@@ -88,6 +134,7 @@ export class HeapSnapshotFormatter {
 
   static formatRetainingPaths(
     retainingPaths: readonly DevTools.HeapSnapshotModel.HeapSnapshotModel.RetainingEdge[],
+    options?: HeapSnapshotFormatOptions,
   ): string {
     const lines: string[] = [];
 
@@ -97,7 +144,7 @@ export class HeapSnapshotFormatter {
     ) {
       const indent = '  '.repeat(depth);
       lines.push(
-        `${indent}<- @${edge.nodeId} ${edge.nodeName} via ${edge.edgeType} ${edge.edgeName} (distance: ${edge.distance})`,
+        `${indent}<- @${edge.nodeId} ${formatName(edge.nodeName, options)} via ${edge.edgeType} ${formatName(edge.edgeName, options)} (distance: ${edge.distance})`,
       );
       for (const child of edge.children) {
         formatEdge(child, depth + 1);
@@ -113,12 +160,13 @@ export class HeapSnapshotFormatter {
 
   static formatDominators(
     dominators: DevTools.HeapSnapshotModel.HeapSnapshotModel.DominatorChain,
+    options?: HeapSnapshotFormatOptions,
   ): string {
     const lines: string[] = [];
     lines.push('nodeId,nodeName,selfSize,retainedSize');
     for (const node of dominators) {
       lines.push(
-        `${node.nodeId},${node.nodeName},${formatBytesToKb(node.selfSize)},${formatBytesToKb(node.retainedSize)}`,
+        `${node.nodeId},${formatName(node.nodeName, options)},${formatBytesToKb(node.selfSize)},${formatBytesToKb(node.retainedSize)}`,
       );
     }
     return lines.join('\n');
@@ -126,14 +174,16 @@ export class HeapSnapshotFormatter {
 
   static formatDuplicateStrings(
     groups: readonly DuplicateStringGroup[],
+    options?: HeapSnapshotFormatOptions,
   ): string {
     const lines: string[] = [];
     lines.push('value,count,totalSelfSize,totalRetainedSize,truncated,nodeIds');
     for (const group of groups) {
       const nodeIds = group.nodes.map(n => `@${n.id}`).join(' ');
       const truncated = group.truncated ?? false;
+      const displayValue = truncateValue(group.value, options).value;
       lines.push(
-        `${JSON.stringify(group.value)},${group.count},${formatBytesToKb(group.totalSelfSize)},${formatBytesToKb(group.totalRetainedSize)},${truncated},${nodeIds}`,
+        `${JSON.stringify(displayValue)},${group.count},${formatBytesToKb(group.totalSelfSize)},${formatBytesToKb(group.totalRetainedSize)},${truncated},${nodeIds}`,
       );
     }
     return lines.join('\n');
@@ -141,6 +191,7 @@ export class HeapSnapshotFormatter {
 
   static formatNativeContextSizes(
     sizes: DevTools.HeapSnapshotModel.HeapSnapshotModel.NativeContextSizes,
+    options?: HeapSnapshotFormatOptions,
   ): string {
     const lines: string[] = [];
     lines.push('nodeId,nodeName,selfSize,retainedSize,attributedSize');
@@ -149,7 +200,7 @@ export class HeapSnapshotFormatter {
     );
     for (const nc of sortedContexts) {
       lines.push(
-        `${nc.nodeId},${nc.nodeName},${formatBytesToKb(nc.selfSize)},${formatBytesToKb(nc.retainedSize)},${formatBytesToKb(nc.attributedSize)}`,
+        `${nc.nodeId},${formatName(nc.nodeName, options)},${formatBytesToKb(nc.selfSize)},${formatBytesToKb(nc.retainedSize)},${formatBytesToKb(nc.attributedSize)}`,
       );
     }
     lines.push(`Shared Size: ${formatBytesToKb(sizes.sharedSize)}`);
@@ -261,10 +312,11 @@ export class HeapSnapshotFormatter {
 
   static formatObjectInfo(
     info: DevTools.HeapSnapshotModel.HeapSnapshotModel.ObjectInfo,
+    options?: HeapSnapshotFormatOptions,
   ): string {
     const lines = [
       `id: @${info.id}`,
-      `name: ${info.name}`,
+      `name: ${formatName(info.name, options)}`,
       `type: ${info.type}`,
       `detachedness: ${formatDOMLinkState(info.detachedness)}`,
       `selfSize: ${formatBytesToKb(info.selfSize)}`,

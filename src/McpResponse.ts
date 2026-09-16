@@ -19,9 +19,11 @@ import {
   resolveContainerQueries,
 } from './formatters/CssFormatter.js';
 import {
+  formatName,
   HeapSnapshotFormatter,
   isEdgeLike,
   isNodeLike,
+  type HeapSnapshotFormatOptions,
 } from './formatters/HeapSnapshotFormatter.js';
 import {IssueFormatter} from './formatters/IssueFormatter.js';
 import {NetworkFormatter} from './formatters/NetworkFormatter.js';
@@ -109,6 +111,7 @@ export class McpResponse implements Response {
     detailedClassDiff?: HeapSnapshotDetailedClassDiff;
     duplicateStrings?: DuplicateStringGroup[];
     objectInfo?: DevTools.HeapSnapshotModel.HeapSnapshotModel.ObjectInfo;
+    formatOptions?: HeapSnapshotFormatOptions;
   };
   #networkRequestsOptions?: {
     include: boolean;
@@ -378,6 +381,7 @@ export class McpResponse implements Response {
     staticData: DevTools.HeapSnapshotModel.HeapSnapshotModel.StaticData | null,
     nativeContextSizes: DevTools.HeapSnapshotModel.HeapSnapshotModel.NativeContextSizes,
     retainedByContextSummary: DevTools.HeapSnapshotModel.HeapSnapshotModel.RetainedByContextSummary,
+    options?: HeapSnapshotFormatOptions,
   ) {
     this.#heapSnapshotOptions = {
       ...this.#heapSnapshotOptions,
@@ -386,50 +390,57 @@ export class McpResponse implements Response {
       staticData,
       nativeContextSizes,
       retainedByContextSummary,
+      formatOptions: options,
     };
   }
 
   setHeapSnapshotNodes(
     nodes: DevTools.HeapSnapshotModel.HeapSnapshotModel.ItemsRange,
-    options?: PaginationOptions,
+    options?: PaginationOptions & HeapSnapshotFormatOptions,
   ) {
     this.#heapSnapshotOptions = {
       ...this.#heapSnapshotOptions,
       include: true,
       nodes,
       pagination: options,
+      formatOptions: options,
     };
   }
 
   setHeapSnapshotDuplicateStrings(
     duplicateStrings: DuplicateStringGroup[],
-    options?: PaginationOptions,
+    options?: PaginationOptions & HeapSnapshotFormatOptions,
   ) {
     this.#heapSnapshotOptions = {
       ...this.#heapSnapshotOptions,
       include: true,
       duplicateStrings,
       pagination: options,
+      formatOptions: options,
     };
   }
 
   setHeapSnapshotRetainingPaths(
     retainingPaths: DevTools.HeapSnapshotModel.HeapSnapshotModel.RetainingPaths,
+    options?: HeapSnapshotFormatOptions,
   ) {
     this.#heapSnapshotOptions = {
       ...this.#heapSnapshotOptions,
       include: true,
       retainingPaths,
+      formatOptions: options,
     };
   }
 
   setHeapSnapshotDominators(
     dominators: DevTools.HeapSnapshotModel.HeapSnapshotModel.DominatorChain,
+    options?: HeapSnapshotFormatOptions,
   ) {
     this.#heapSnapshotOptions = {
       ...this.#heapSnapshotOptions,
       include: true,
       dominators,
+      formatOptions: options,
     };
   }
 
@@ -453,11 +464,13 @@ export class McpResponse implements Response {
 
   setHeapSnapshotObjectDetails(
     objectInfo: DevTools.HeapSnapshotModel.HeapSnapshotModel.ObjectInfo,
+    options?: HeapSnapshotFormatOptions,
   ) {
     this.#heapSnapshotOptions = {
       ...this.#heapSnapshotOptions,
       include: true,
       objectInfo,
+      formatOptions: options,
     };
   }
 
@@ -1160,8 +1173,12 @@ Call ${handleDialog.name} to handle it before continuing.`);
       const nativeContextSizes = this.#heapSnapshotOptions.nativeContextSizes;
       if (nativeContextSizes) {
         response.push('### Native Contexts');
+        const formatOptions = this.#heapSnapshotOptions.formatOptions;
         response.push(
-          HeapSnapshotFormatter.formatNativeContextSizes(nativeContextSizes),
+          HeapSnapshotFormatter.formatNativeContextSizes(
+            nativeContextSizes,
+            formatOptions,
+          ),
         );
         structuredContent.heapSnapshot = structuredContent.heapSnapshot || {};
         structuredContent.heapSnapshot.nativeContextSizes = nativeContextSizes;
@@ -1226,12 +1243,19 @@ Call ${handleDialog.name} to handle it before continuing.`);
           }
         }
 
+        const formatOptions = this.#heapSnapshotOptions.formatOptions;
+
         const paginationData = this.#dataWithPagination(
           items,
           this.#heapSnapshotOptions.pagination,
         );
 
-        response.push(HeapSnapshotFormatter.formatNodes(paginationData.items));
+        response.push(
+          HeapSnapshotFormatter.formatNodes(
+            paginationData.items,
+            formatOptions,
+          ),
+        );
 
         structuredContent.pagination = paginationData.pagination;
         response.push(...paginationData.info);
@@ -1241,11 +1265,14 @@ Call ${handleDialog.name} to handle it before continuing.`);
       const retainingPaths = this.#heapSnapshotOptions.retainingPaths;
       if (retainingPaths) {
         response.push('### Retaining Paths');
+        const formatOptions = this.#heapSnapshotOptions.formatOptions;
         const {paths, limitsReached} = retainingPaths;
         if (paths.length === 0) {
           response.push('No retaining paths found.');
         } else {
-          response.push(HeapSnapshotFormatter.formatRetainingPaths(paths));
+          response.push(
+            HeapSnapshotFormatter.formatRetainingPaths(paths, formatOptions),
+          );
         }
         const reached = Object.entries(limitsReached)
           .filter(([, hit]) => hit)
@@ -1261,10 +1288,13 @@ Call ${handleDialog.name} to handle it before continuing.`);
       const dominators = this.#heapSnapshotOptions.dominators;
       if (dominators) {
         response.push('### Dominator Chain');
+        const formatOptions = this.#heapSnapshotOptions.formatOptions;
         if (dominators.length === 0) {
           response.push('No dominators found.');
         } else {
-          response.push(HeapSnapshotFormatter.formatDominators(dominators));
+          response.push(
+            HeapSnapshotFormatter.formatDominators(dominators, formatOptions),
+          );
         }
         structuredContent.heapSnapshotDominators = dominators;
       }
@@ -1291,6 +1321,7 @@ Call ${handleDialog.name} to handle it before continuing.`);
       const duplicateStrings = this.#heapSnapshotOptions.duplicateStrings;
       if (duplicateStrings) {
         response.push('### Duplicate Strings');
+        const formatOptions = this.#heapSnapshotOptions.formatOptions;
         const paginationData = this.#dataWithPagination(
           duplicateStrings,
           this.#heapSnapshotOptions.pagination,
@@ -1301,6 +1332,7 @@ Call ${handleDialog.name} to handle it before continuing.`);
 
         const formatted = HeapSnapshotFormatter.formatDuplicateStrings(
           paginationData.items,
+          formatOptions,
         );
         response.push(formatted);
 
@@ -1309,11 +1341,19 @@ Call ${handleDialog.name} to handle it before continuing.`);
       const objectInfo = this.#heapSnapshotOptions.objectInfo;
       if (objectInfo) {
         response.push('### Object Details');
-        response.push(
-          compactEncode
-            ? compactEncode(objectInfo)
-            : HeapSnapshotFormatter.formatObjectInfo(objectInfo),
-        );
+        const formatOptions = this.#heapSnapshotOptions.formatOptions;
+        if (compactEncode) {
+          response.push(
+            compactEncode({
+              ...objectInfo,
+              name: formatName(objectInfo.name, formatOptions),
+            }),
+          );
+        } else {
+          response.push(
+            HeapSnapshotFormatter.formatObjectInfo(objectInfo, formatOptions),
+          );
+        }
         structuredContent.heapSnapshotObjectDetails = objectInfo;
       }
     }
