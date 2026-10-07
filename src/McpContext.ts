@@ -88,7 +88,7 @@ interface McpContextOptions {
 let nextPageId = 1;
 
 export class McpContext implements Context {
-  browser: Browser;
+  #browser: Browser | undefined;
   logger: Logger;
 
   // Maps LLM-provided isolatedContext name → Puppeteer BrowserContext.
@@ -104,7 +104,7 @@ export class McpContext implements Context {
   #selectedPage?: McpPage;
   #selectedPageFallback?: {wasClosed: boolean};
 
-  #serviceWorkerConsoleCollector: ServiceWorkerConsoleCollector;
+  #serviceWorkerConsoleCollector?: ServiceWorkerConsoleCollector;
 
   #isRunningTrace = false;
   #screenRecorderData: {recorder: ScreenRecorder; filePath: string} | null =
@@ -121,7 +121,7 @@ export class McpContext implements Context {
   #allowUnrestrictedPaths: boolean;
 
   private constructor(
-    browser: Browser,
+    browser: Browser | undefined,
     logger: Logger,
     options: McpContextOptions,
     locatorClass: typeof Locator,
@@ -132,7 +132,7 @@ export class McpContext implements Context {
       },
     });
 
-    this.browser = browser;
+    this.#browser = browser;
     this.logger = logger;
     this.#locatorClass = locatorClass;
     this.#options = options;
@@ -140,25 +140,41 @@ export class McpContext implements Context {
     this.#allowUnrestrictedPaths = options.allowUnrestrictedPaths ?? false;
     this.#reconnectNotice = options.reconnected ?? false;
 
-    this.#serviceWorkerConsoleCollector = new ServiceWorkerConsoleCollector(
-      this.browser,
-    );
+    if (browser) {
+      this.#serviceWorkerConsoleCollector = new ServiceWorkerConsoleCollector(
+        browser,
+      );
+    }
+  }
+
+  get browser(): Browser {
+    if (!this.#browser) {
+      throw new Error('Browser is not connected.');
+    }
+    return this.#browser;
+  }
+
+  hasBrowser(): boolean {
+    return this.#browser !== undefined;
   }
 
   async #init() {
+    if (!this.#browser) {
+      return;
+    }
     await this.createPagesSnapshot();
     const workers = this.createWorkersSnapshot();
 
-    await this.#serviceWorkerConsoleCollector.init(workers);
-    this.browser.on('targetcreated', this.#onTargetCreated);
-    this.browser.on('targetdestroyed', this.#onTargetDestroyed);
+    await this.#serviceWorkerConsoleCollector?.init(workers);
+    this.#browser.on('targetcreated', this.#onTargetCreated);
+    this.#browser.on('targetdestroyed', this.#onTargetDestroyed);
   }
 
   dispose() {
-    this.browser.off('targetcreated', this.#onTargetCreated);
-    this.browser.off('targetdestroyed', this.#onTargetDestroyed);
+    this.#browser?.off('targetcreated', this.#onTargetCreated);
+    this.#browser?.off('targetdestroyed', this.#onTargetDestroyed);
 
-    this.#serviceWorkerConsoleCollector.dispose();
+    this.#serviceWorkerConsoleCollector?.dispose();
     for (const mcpPage of this.#mcpPages.values()) {
       mcpPage.dispose();
     }
@@ -196,7 +212,7 @@ export class McpContext implements Context {
   };
 
   static async from(
-    browser: Browser,
+    browser: Browser | undefined,
     logger: Logger,
     opts: McpContextOptions,
     /* Let tests use unbundled Locator class to avoid overly strict checks within puppeteer that fail when mixing bundled and unbundled class instances */
@@ -548,7 +564,7 @@ export class McpContext implements Context {
   getServiceWorkerConsoleData(
     extensionId: string,
   ): Array<ConsoleMessage | UncaughtError> {
-    return this.#serviceWorkerConsoleCollector.getData(extensionId);
+    return this.#serviceWorkerConsoleCollector?.getData(extensionId) ?? [];
   }
 
   #getBrowserContextToNameMap(): Map<BrowserContext, string> {

@@ -96,6 +96,7 @@ export interface BaseToolDefinition<
   };
   schema: Schema;
   blockedByDialog: boolean;
+  requiresBrowser?: boolean;
   verifyFilesSchema: Partial<
     Record<keyof MergeSchema<Schema>, FileVerificationOption>
   >;

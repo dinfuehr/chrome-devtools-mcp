@@ -117,6 +117,9 @@ async function validateAndResolvePathOrUrl(
 }
 
 function isLocalBrowser(context: McpContext): boolean {
+  if (!context.hasBrowser()) {
+    return true;
+  }
   if (context.browser.process()) {
     return true;
   }
@@ -186,7 +189,9 @@ export class ToolHandler {
   constructor(
     private readonly tool: ToolDefinition | DefinedPageTool,
     private readonly serverArgs: ParsedArguments,
-    private readonly getContext: () => Promise<McpContext>,
+    private readonly getContext: (options: {
+      ensureBrowser: boolean;
+    }) => Promise<McpContext>,
     private readonly toolMutex: Mutex,
     private readonly forgetBrowserOnTimeout: (browser: Browser) => void,
     private readonly abandonPendingBrowserAttemptOnTimeout: () => void,
@@ -256,80 +261,90 @@ export class ToolHandler {
       logger?.(
         `${this.tool.name} request: ${JSON.stringify(params, null, '  ')}`,
       );
+      const requiresBrowser = this.tool.requiresBrowser ?? true;
+      const contextPromise = this.getContext({ensureBrowser: requiresBrowser});
       // ensureBrowser() has no cancellation mechanism, so this timeout only
       // stops us from waiting — the attempt itself keeps running abandoned.
       // abandonPendingBrowserAttemptOnTimeout() tells BrowserManager to
       // discard that attempt if it succeeds later instead of handing it to a
       // subsequent caller — see BrowserManager#abandonPendingAttempt()'s doc
       // comment for the full mechanism.
-      const context = await this.#raceWithTimeout(this.getContext(), () =>
-        this.abandonPendingBrowserAttemptOnTimeout(),
-      );
+      const context = requiresBrowser
+        ? await this.#raceWithTimeout(contextPromise, () =>
+            this.abandonPendingBrowserAttemptOnTimeout(),
+          )
+        : await contextPromise;
       logger?.(`${this.tool.name} context: resolved`);
       const response = this.serverArgs.slim
         ? new SlimMcpResponse(this.serverArgs)
         : new McpResponse(this.serverArgs);
 
       response.setRedactNetworkHeaders(this.serverArgs.redactNetworkHeaders);
-      if (context.consumeReconnectNotice()) {
+      if (requiresBrowser && context.consumeReconnectNotice()) {
         response.setReconnectNotice();
       }
+      const executeTool = async () => {
+        let page: McpPage | undefined;
+        try {
+          await validateToolFiles(this.tool, params, context);
+          if (isPageScopedTool(this.tool)) {
+            const pageId =
+              typeof params.pageId === 'number' ? params.pageId : undefined;
+            page =
+              this.serverArgs.pageIdRouting &&
+              pageId !== undefined &&
+              !isSlimTool(this.tool)
+                ? context.getPageById(pageId)
+                : context.getSelectedMcpPage();
+            await page?.init();
+            response.setPage(page);
+            if (this.tool.blockedByDialog) {
+              page.throwIfDialogOpen();
+            }
+            await this.tool.handler(
+              {
+                params,
+                page,
+              },
+              response,
+              context,
+            );
+          } else {
+            await this.tool.handler(
+              {
+                params,
+              },
+              response,
+              context,
+            );
+          }
+        } catch (err) {
+          response.setError(err);
+        }
+        if (requiresBrowser) {
+          devToolsData = await context.getDevToolsData(page);
+          pageUrl = context.getSelectedMcpPageUrl(page);
+        }
+        // --experimentalDataFormat takes precedence over the legacy
+        // --experimentalToonFormat.
+        const dataFormat =
+          this.serverArgs.experimentalDataFormat ??
+          (this.serverArgs.experimentalToonFormat ? 'toon' : 'default');
+        return await response.handle(context, dataFormat);
+      };
       // Shares one budget with tool.handler(): several tools' actual CDP
       // calls happen in response.handle() instead (take_snapshot,
       // list_pages, get_network_request, list_extensions), so it needs
-      // covering too. The closure below isn't cancelled on timeout — it
+      // covering too. The closure isn't cancelled on timeout — it
       // keeps running abandoned — but nothing after this point observes its
       // result.
-      const {content, structuredContent} = await this.#raceWithTimeout(
-        (async () => {
-          let page: McpPage | undefined;
-          try {
-            await validateToolFiles(this.tool, params, context);
-            if (isPageScopedTool(this.tool)) {
-              const pageId =
-                typeof params.pageId === 'number' ? params.pageId : undefined;
-              page =
-                this.serverArgs.pageIdRouting &&
-                pageId !== undefined &&
-                !isSlimTool(this.tool)
-                  ? context.getPageById(pageId)
-                  : context.getSelectedMcpPage();
-              await page?.init();
-              response.setPage(page);
-              if (this.tool.blockedByDialog) {
-                page.throwIfDialogOpen();
-              }
-              await this.tool.handler(
-                {
-                  params,
-                  page,
-                },
-                response,
-                context,
-              );
-            } else {
-              await this.tool.handler(
-                {
-                  params,
-                },
-                response,
-                context,
-              );
+      const {content, structuredContent} = requiresBrowser
+        ? await this.#raceWithTimeout(executeTool(), () => {
+            if (context.hasBrowser()) {
+              this.forgetBrowserOnTimeout(context.browser);
             }
-          } catch (err) {
-            response.setError(err);
-          }
-          devToolsData = await context.getDevToolsData(page);
-          pageUrl = context.getSelectedMcpPageUrl(page);
-          // --experimentalDataFormat takes precedence over the legacy
-          // --experimentalToonFormat.
-          const dataFormat =
-            this.serverArgs.experimentalDataFormat ??
-            (this.serverArgs.experimentalToonFormat ? 'toon' : 'default');
-          return await response.handle(context, dataFormat);
-        })(),
-        () => this.forgetBrowserOnTimeout(context.browser),
-      );
+          })
+        : await executeTool();
       const result: CallToolResult & {
         structuredContent?: Record<string, unknown>;
       } = {

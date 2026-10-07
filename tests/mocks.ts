@@ -141,6 +141,7 @@ export function createMockPuppeteerBrowser(): sinon.SinonStubbedInstance<Browser
   browser.close.resolves();
   browser.disconnect.resolves();
   browser.pages.resolves([]);
+  browser.targets.returns([]);
   browser.process.returns(null);
 
   const browserListener = mockListener();
@@ -375,11 +376,19 @@ export function createMockMcpWorker(
 }
 
 export function createMockMcpContext(
-  options: {selectedPage?: MockMcpPage} = {},
+  options: {selectedPage?: MockMcpPage; browser?: Browser} = {},
 ): MockMcpContext {
   const context = sinon.createStubInstance(McpContext);
   const page = options.selectedPage ?? createMockMcpPage();
   context.getSelectedMcpPage.returns(page satisfies McpPage);
+  if (options.browser) {
+    const browser = options.browser;
+    Object.defineProperty(context, 'browser', {
+      get: () => browser,
+      configurable: true,
+    });
+  }
+  context.hasBrowser.returns(options.browser !== undefined);
 
   return context;
 }
