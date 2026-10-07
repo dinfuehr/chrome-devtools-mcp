@@ -22,6 +22,7 @@ import {TextSnapshot} from '../src/TextSnapshot.js';
 import {type HTTPResponse} from '../src/third_party/index.js';
 import type {TraceResult} from '../src/processors/PerformanceTrace.js';
 import {resolveCanonicalPath} from '../src/utils/files.js';
+import {logger} from '../src/utils/logger.js';
 
 import {serverHooks} from './server.js';
 import {
@@ -64,6 +65,21 @@ describe('McpContext', () => {
       page.textSnapshot = await TextSnapshot.create(page);
       await page.getElementByUid('1_1');
     });
+  });
+
+  it('can be initialized without a browser', async () => {
+    const heapSnapshotManager = new HeapSnapshotManager();
+    const context = await McpContext.from(undefined, logger, {
+      experimentalDevToolsDebugging: false,
+      performanceCrux: false,
+      heapSnapshotManager,
+    });
+    assert.strictEqual(context.hasBrowser(), false);
+    assert.throws(() => context.browser, /Browser is not connected\./);
+    assert.deepStrictEqual(context.getServiceWorkerConsoleData('ext-id'), []);
+
+    context.dispose();
+    heapSnapshotManager.dispose();
   });
 
   it('can store and retrieve the latest performance trace', async () => {

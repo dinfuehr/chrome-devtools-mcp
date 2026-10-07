@@ -259,10 +259,21 @@ export class McpServer {
     }
   }
 
-  async #getContext(): Promise<McpContext> {
-    const browser = await this.#browserManager.ensureBrowser();
+  async #getContext(options: {ensureBrowser: boolean}): Promise<McpContext> {
+    if (!options.ensureBrowser && this.#context) {
+      return this.#context;
+    }
 
-    if (this.#context?.browser !== browser) {
+    const browser = options.ensureBrowser
+      ? await this.#browserManager.ensureBrowser()
+      : undefined;
+
+    if (
+      !this.#context ||
+      !this.#context.hasBrowser() ||
+      this.#context.browser !== browser
+    ) {
+      const reconnected = Boolean(this.#context?.hasBrowser());
       this.#context?.dispose();
       this.#context = await McpContext.from(browser, logger, {
         experimentalDevToolsDebugging:
@@ -275,7 +286,7 @@ export class McpServer {
         blocklist: this.#serverArgs.blockedUrlPattern,
         allowUnrestrictedPaths: this.#serverArgs.allowUnrestrictedPaths,
         // Surfaces a one-time note in the next response after a reconnect.
-        reconnected: this.#context !== undefined,
+        reconnected,
         categoryExtensions: this.#serverArgs.categoryExtensions,
         heapSnapshotManager: this.#heapSnapshotManager,
         onNotification: (message: string) => {
@@ -307,7 +318,7 @@ export class McpServer {
     return new ToolHandler(
       tool,
       this.#serverArgs,
-      () => this.#getContext(),
+      options => this.#getContext(options),
       this.#toolMutex,
       browser => this.#browserManager.forget(browser),
       () => this.#browserManager.abandonPendingAttempt(),

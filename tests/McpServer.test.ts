@@ -29,9 +29,19 @@ describe('McpServer', () => {
     browserManager.ensureBrowser.resolves(browser);
 
     const context = createMockMcpContext();
-    context.browser = browser;
     context.getPages.returns([]);
-    sinon.stub(McpContext, 'from').resolves(context);
+    const fromStub = sinon
+      .stub(McpContext, 'from')
+      .callsFake(async initBrowser => {
+        if (initBrowser) {
+          Object.defineProperty(context, 'browser', {
+            get: () => initBrowser,
+            configurable: true,
+          });
+          context.hasBrowser.returns(true);
+        }
+        return context;
+      });
 
     const serverArgs = new ConfigParser(
       '1.0.0',
@@ -41,7 +51,7 @@ describe('McpServer', () => {
       },
     ).parse();
     const server = await McpServer.from(serverArgs, {browserManager});
-    return {server, browserManager, context};
+    return {server, browserManager, browser, context, fromStub};
   }
 
   describe('callTool', () => {
@@ -84,6 +94,39 @@ describe('McpServer', () => {
       assert.strictEqual(result.isError, undefined);
       sinon.assert.calledOnce(browserManager.ensureBrowser);
       sinon.assert.calledOnce(context.createPagesSnapshot);
+    });
+
+    it('does not call ensureBrowser for offline heapsnapshot tools and recreates context with browser when a browser tool is called later', async () => {
+      const {server, browserManager, browser, context, fromStub} =
+        await createTestServer(['--memoryDebugging']);
+      context.validatePath.resolves('/tmp/test.heapsnapshot');
+      context.closeHeapSnapshot.resolves(true);
+
+      const offlineResult = await server.callTool('close_heapsnapshot', {
+        filePath: '/tmp/test.heapsnapshot',
+      });
+
+      assert.strictEqual(offlineResult.isError, undefined);
+      sinon.assert.notCalled(browserManager.ensureBrowser);
+      sinon.assert.calledOnce(fromStub);
+      assert.strictEqual(fromStub.firstCall.args[0], undefined);
+      sinon.assert.calledOnceWithExactly(
+        context.closeHeapSnapshot,
+        '/tmp/test.heapsnapshot',
+      );
+
+      const browserResult = await server.callTool('list_pages', {});
+
+      assert.strictEqual(browserResult.isError, undefined);
+      sinon.assert.calledOnce(browserManager.ensureBrowser);
+      sinon.assert.calledOnce(context.dispose);
+      sinon.assert.calledTwice(fromStub);
+      assert.strictEqual(fromStub.secondCall.args[0], browser);
+      assert.strictEqual(fromStub.secondCall.args[2].reconnected, false);
+      assert.strictEqual(
+        fromStub.secondCall.args[2].heapSnapshotManager,
+        fromStub.firstCall.args[2].heapSnapshotManager,
+      );
     });
   });
 
