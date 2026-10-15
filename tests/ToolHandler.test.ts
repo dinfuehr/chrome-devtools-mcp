@@ -21,14 +21,16 @@ import {zod, Mutex} from '../src/third_party/index.js';
 import {TOOL_CALL_TIMEOUT_MS, ToolHandler} from '../src/ToolHandler.js';
 import {ToolCategory} from '../src/tools/categories.js';
 import {
+  defineBrowserlessTool,
   definePageTool,
+  type BrowserlessToolDefinition,
   type DefinedPageTool,
   type DevToolsData,
   type ToolDefinition,
 } from '../src/tools/ToolDefinition.js';
 import {evaluateScript} from '../src/tools/script.js';
 import {createTools} from '../src/tools/tools.js';
-import {createMockMcpContext} from './mocks.js';
+import {createMockMcpContext, createMockServerContext} from './mocks.js';
 import {getMockBrowser} from './utils.js';
 
 describe('ToolHandler', () => {
@@ -69,6 +71,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -116,6 +119,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -159,6 +163,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -218,6 +223,7 @@ describe('ToolHandler', () => {
         tool,
         serverArgs,
         async () => mockContext,
+        async () => createMockServerContext(),
         new Mutex(),
         sinon.spy(),
         sinon.spy(),
@@ -295,6 +301,7 @@ describe('ToolHandler', () => {
         testCase.tool,
         serverArgs,
         async () => mockContext,
+        async () => createMockServerContext(),
         toolMutex,
         sinon.spy(),
         sinon.spy(),
@@ -344,6 +351,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -400,6 +408,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -433,6 +442,7 @@ describe('ToolHandler', () => {
       defaultTool,
       defaultServerArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -454,6 +464,7 @@ describe('ToolHandler', () => {
       disabledTool,
       disabledServerArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -484,6 +495,7 @@ describe('ToolHandler', () => {
       cliTool,
       cliServerArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -516,6 +528,7 @@ describe('ToolHandler', () => {
       defaultTool,
       defaultServerArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -537,6 +550,7 @@ describe('ToolHandler', () => {
       disabledTool,
       disabledServerArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -559,6 +573,7 @@ describe('ToolHandler', () => {
         tool,
         serverArgs,
         async () => sinon.createStubInstance(McpContext),
+        async () => createMockServerContext(),
         new Mutex(),
         sinon.spy(),
         sinon.spy(),
@@ -649,6 +664,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -727,6 +743,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -760,6 +777,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       new Mutex(),
       sinon.spy(),
       sinon.spy(),
@@ -818,6 +836,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -877,6 +896,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -939,6 +959,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -991,6 +1012,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -1041,6 +1063,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -1099,6 +1122,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -1162,6 +1186,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -1218,6 +1243,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockRemoteContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -1239,6 +1265,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockLocalContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -1297,6 +1324,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       sinon.spy(),
       sinon.spy(),
@@ -1350,6 +1378,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       new Mutex(),
       sinon.spy(),
       sinon.spy(),
@@ -1401,6 +1430,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       forgetBrowserSpy,
       sinon.spy(),
@@ -1461,6 +1491,7 @@ describe('ToolHandler', () => {
       tool,
       serverArgs,
       async () => mockContext,
+      async () => createMockServerContext(),
       toolMutex,
       forgetBrowserSpy,
       sinon.spy(),
@@ -1516,6 +1547,7 @@ describe('ToolHandler', () => {
           // Simulates BrowserManager#ensureBrowser() hanging on a half-open
           // socket: it never resolves or rejects on its own.
         }),
+      async () => createMockServerContext(),
       toolMutex,
       forgetBrowserSpy,
       abandonPendingBrowserAttemptSpy,
@@ -1540,5 +1572,106 @@ describe('ToolHandler', () => {
     } finally {
       clock.restore();
     }
+  });
+
+  describe('browserless tools', () => {
+    function createBrowserlessTool(
+      handler: BrowserlessToolDefinition['handler'],
+    ) {
+      return defineBrowserlessTool(() => ({
+        name: 'browserless_tool',
+        description: 'A tool that does not need a browser',
+        annotations: {
+          category: ToolCategory.MEMORY,
+          readOnlyHint: true,
+        },
+        schema: {
+          filePath: zod.string(),
+        },
+        blockedByDialog: false,
+        verifyFilesSchema: {filePath: true},
+        handler,
+      }));
+    }
+
+    function createServerArgs() {
+      return new ConfigParser('1.0.0', ['node', 'script.js'], {
+        CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: 'true',
+      }).parse();
+    }
+
+    it('runs without establishing a browser connection', async () => {
+      const serverArgs = createServerArgs();
+      const handler = sinon.stub().resolves();
+      const tool = createBrowserlessTool(handler)(serverArgs);
+      const serverContext = createMockServerContext();
+      serverContext.validatePath.resolves('/canonical/file.heapsnapshot');
+      const getContext = sinon.stub().rejects(new Error('no browser'));
+      const handleStub = sinon
+        .stub(McpResponse.prototype, 'handle')
+        .resolves({content: [], structuredContent: {}});
+
+      const result = await new ToolHandler(
+        tool,
+        serverArgs,
+        getContext,
+        async () => serverContext,
+        new Mutex(),
+        sinon.spy(),
+        sinon.spy(),
+      ).handle({filePath: 'file.heapsnapshot'});
+
+      assert.strictEqual(result.isError, undefined);
+      sinon.assert.notCalled(getContext);
+      sinon.assert.calledOnceWithExactly(
+        serverContext.validatePath,
+        'file.heapsnapshot',
+      );
+      sinon.assert.calledOnceWithExactly(
+        handler,
+        {params: {filePath: '/canonical/file.heapsnapshot'}},
+        sinon.match.instanceOf(McpResponse),
+        serverContext,
+      );
+      sinon.assert.calledOnceWithExactly(handleStub, undefined, 'default');
+    });
+
+    it('does not apply the browser connection timeout', async () => {
+      const serverArgs = createServerArgs();
+      const tool = createBrowserlessTool(async () => {
+        await new Promise(resolve =>
+          setTimeout(resolve, TOOL_CALL_TIMEOUT_MS * 2),
+        );
+      })(serverArgs);
+      const serverContext = createMockServerContext();
+      serverContext.validatePath.resolves('/canonical/file.heapsnapshot');
+      const forgetBrowserSpy = sinon.spy();
+      const abandonPendingBrowserAttemptSpy = sinon.spy();
+
+      const toolHandler = new ToolHandler(
+        tool,
+        serverArgs,
+        sinon.stub().rejects(new Error('no browser')),
+        async () => serverContext,
+        new Mutex(),
+        forgetBrowserSpy,
+        abandonPendingBrowserAttemptSpy,
+      );
+
+      const clock = sinon.useFakeTimers();
+      try {
+        const resultPromise = toolHandler.handle({
+          filePath: 'file.heapsnapshot',
+        });
+        await clock.tickAsync(TOOL_CALL_TIMEOUT_MS * 2);
+        const result = await resultPromise;
+
+        assert.strictEqual(result.isError, undefined);
+        sinon.assert.notCalled(forgetBrowserSpy);
+        sinon.assert.notCalled(abandonPendingBrowserAttemptSpy);
+      } finally {
+        clock.restore();
+      }
+    });
   });
 });

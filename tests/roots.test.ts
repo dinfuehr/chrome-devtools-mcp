@@ -14,7 +14,7 @@ import {pathToFileURL} from 'node:url';
 import sinon from 'sinon';
 
 import {McpContext} from '../src/McpContext.js';
-import {HeapSnapshotManager} from '../src/processors/HeapSnapshotManager.js';
+import {ServerContext} from '../src/ServerContext.js';
 import {resolveCanonicalPath} from '../src/utils/files.js';
 import {escapeForLog} from '../src/utils/logger.js';
 
@@ -173,7 +173,7 @@ describe('McpContext path validation escaping', () => {
     return await McpContext.from(browser, undefined, {
       experimentalDevToolsDebugging: false,
       performanceCrux: false,
-      heapSnapshotManager: new HeapSnapshotManager(),
+      serverContext: new ServerContext(),
     });
   }
 

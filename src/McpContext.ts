@@ -5,20 +5,10 @@
  */
 
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
-import {fileURLToPath, pathToFileURL} from 'node:url';
+import {fileURLToPath} from 'node:url';
 
 import {overrideDevToolsGlobals} from './devtools/DevtoolsUtils.js';
-import type {
-  HeapSnapshotManager,
-  HeapSnapshotAggregateData,
-  HeapSnapshotClassDiff,
-  HeapSnapshotDetailedClassDiff,
-  DuplicateStringGroup,
-  HeapEdgesQueryOptions,
-  HeapQueryOptions,
-} from './processors/HeapSnapshotManager.js';
 import {McpPage} from './McpPage.js';
 import {type UncaughtError} from './collectors/PageCollector.js';
 import {ServiceWorkerConsoleCollector} from './collectors/ServiceWorkerCollector.js';
@@ -38,8 +28,8 @@ import {
   type UninstallPWAOptions,
   type Extension,
   type Root,
-  type DevTools,
 } from './third_party/index.js';
+import type {ServerContext} from './ServerContext.js';
 import {CLOSE_PAGE_ERROR} from './tools/ToolDefinition.js';
 import type {
   Context,
@@ -49,7 +39,7 @@ import type {
 import type {TraceResult} from './processors/PerformanceTrace.js';
 import type {Logger} from './types.js';
 import {McpWorker} from './McpWorker.js';
-import {getTempFilePath, resolveCanonicalPath} from './utils/files.js';
+import {getTempFilePath} from './utils/files.js';
 import {escapeForLog} from './utils/logger.js';
 import {isAllowedUrl} from './utils/url.js';
 interface McpContextOptions {
@@ -65,11 +55,6 @@ interface McpContextOptions {
   allowlist?: string[];
   // The block list of URL patterns to block loading resources.
   blocklist?: string[];
-  // Whether to skip path validation when the client did not negotiate the roots
-  // capability. When false (default), tools that read or write local files are
-  // restricted to the OS temp directory. When true, the previous permissive
-  // behavior is restored.
-  allowUnrestrictedPaths?: boolean;
   // Whether this context replaces a previous one after a browser reconnect.
   // Surfaces a one-time note in the next response.
   reconnected?: boolean;
@@ -79,8 +64,9 @@ interface McpContextOptions {
   categoryExtensions?: boolean;
   // Callback when a notification should be emitted to MCP client.
   onNotification?: (message: string) => void;
-  // Shared heap snapshot manager to preserve loaded snapshots across browser reconnects.
-  heapSnapshotManager: HeapSnapshotManager;
+  // Browser-independent server state (roots, heap snapshots) that is preserved
+  // across browser reconnects.
+  serverContext: ServerContext;
 }
 
 // Page ids are handed out from a process-wide counter so they stay unique
@@ -116,9 +102,7 @@ export class McpContext implements Context {
 
   #locatorClass: typeof Locator;
   #options: McpContextOptions;
-  #heapSnapshotManager: HeapSnapshotManager;
-  #roots: Root[] | undefined = undefined;
-  #allowUnrestrictedPaths: boolean;
+  #serverContext: ServerContext;
 
   private constructor(
     browser: Browser,
@@ -136,8 +120,7 @@ export class McpContext implements Context {
     this.logger = logger;
     this.#locatorClass = locatorClass;
     this.#options = options;
-    this.#heapSnapshotManager = options.heapSnapshotManager;
-    this.#allowUnrestrictedPaths = options.allowUnrestrictedPaths ?? false;
+    this.#serverContext = options.serverContext;
     this.#reconnectNotice = options.reconnected ?? false;
 
     this.#serviceWorkerConsoleCollector = new ServiceWorkerConsoleCollector(
@@ -216,100 +199,22 @@ export class McpContext implements Context {
   }
 
   roots(): Root[] {
-    return [
-      ...(this.#roots ?? []),
-      {
-        uri: pathToFileURL(os.tmpdir()).href,
-        name: 'temp',
-      },
-    ];
+    return this.#serverContext.roots();
   }
 
   setRoots(roots: Root[] | undefined): void {
-    this.#roots = roots;
+    this.#serverContext.setRoots(roots);
   }
 
   /**
-   * Validates that the filePath is allowed according to the roots configuration.
-   * Tolerates if parts of the filePath do not exist yet but the file access to
-   * the resolved should only be allowed without following symlinks.
+   * Validates that the filePath is allowed according to the roots
+   * configuration. See {@link ServerContext.validatePath}.
    */
   async validatePath(filePath: string): Promise<string>;
   async validatePath(filePath?: undefined): Promise<undefined>;
   async validatePath(filePath?: string): Promise<string | undefined>;
   async validatePath(filePath?: string): Promise<string | undefined> {
-    if (filePath === undefined) {
-      return undefined;
-    }
-
-    let canonicalPath: string;
-
-    try {
-      canonicalPath = await resolveCanonicalPath(filePath);
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      console.error(
-        `[MCP Context] Error resolving real path for ${escapeForLog(filePath)}: ${escapeForLog(errMsg)}`,
-      );
-      throw new Error(
-        `Access denied: Cannot resolve base path for ${escapeForLog(filePath)}.`,
-      );
-    }
-
-    // If the client never negotiated roots and the operator has explicitly
-    // opted into unrestricted access via --allow-unrestricted-paths, restore
-    // the previous permissive behavior and skip validation.
-    if (this.#roots === undefined && this.#allowUnrestrictedPaths) {
-      // Canonical path might not exist yet so we fallback to
-      // path.resolve(filePath). Consumers should not follow symlinks.
-      return canonicalPath || path.resolve(filePath);
-    }
-    // roots() always returns at least the temp directory, even if the
-    // connecting client never negotiated the optional `roots` capability.
-    // Path validation must not be skipped just because no workspace roots
-    // were configured.
-    const roots = this.roots();
-
-    let allowed = false;
-    const resolvedRoots = await Promise.allSettled(
-      roots.map(async root => {
-        const rootPathUri = root.uri;
-        const rootPath = path.resolve(fileURLToPath(rootPathUri));
-        return await fs.realpath(rootPath);
-      }),
-    );
-
-    for (let i = 0; i < roots.length; i++) {
-      const root = roots[i];
-      const result = resolvedRoots[i];
-
-      if (result.status === 'fulfilled') {
-        const canonicalRoot = result.value;
-        if (
-          canonicalPath === canonicalRoot ||
-          canonicalPath.startsWith(canonicalRoot + path.sep)
-        ) {
-          allowed = true;
-          break;
-        }
-      } else {
-        const rootErr = result.reason;
-        const errMsg =
-          rootErr instanceof Error ? rootErr.message : String(rootErr);
-        console.warn(
-          `[MCP Context] Could not resolve configured root ${escapeForLog(root.uri)}: ${escapeForLog(errMsg)}`,
-        );
-        // Skip this root if it cannot be resolved.
-      }
-    }
-
-    if (!allowed) {
-      throw new Error(
-        `Access denied: path ${escapeForLog(filePath)} (canonical: ${escapeForLog(canonicalPath)}) is not within any of the configured workspace roots.`,
-      );
-    }
-
-    return canonicalPath || path.resolve(filePath);
+    return await this.#serverContext.validatePath(filePath);
   }
 
   async ensureExtension<Extension extends `.${string}`>(
@@ -791,118 +696,6 @@ export class McpContext implements Context {
     return pptrExtensions.get(id);
   }
 
-  async getHeapSnapshotAggregates(
-    filePath: string,
-    filterName?: string,
-    objectId?: number,
-  ): Promise<HeapSnapshotAggregateData> {
-    return await this.#heapSnapshotManager.getAggregates(
-      filePath,
-      filterName,
-      objectId,
-    );
-  }
-
-  async getHeapSnapshotDuplicateStrings(
-    filePath: string,
-  ): Promise<DuplicateStringGroup[]> {
-    return await this.#heapSnapshotManager.getDuplicateStrings(filePath);
-  }
-
-  async queryHeapSnapshotObjects(
-    filePath: string,
-    options: HeapQueryOptions,
-  ): Promise<DevTools.HeapSnapshotModel.HeapSnapshotModel.ItemsRange> {
-    return await this.#heapSnapshotManager.queryObjects(filePath, options);
-  }
-
-  async getHeapSnapshotStats(
-    filePath: string,
-  ): Promise<DevTools.HeapSnapshotModel.HeapSnapshotModel.Statistics> {
-    return await this.#heapSnapshotManager.getStats(filePath);
-  }
-
-  async getHeapSnapshotStaticData(
-    filePath: string,
-  ): Promise<DevTools.HeapSnapshotModel.HeapSnapshotModel.StaticData | null> {
-    return await this.#heapSnapshotManager.getStaticData(filePath);
-  }
-
-  async getHeapSnapshotNativeContextSizes(
-    filePath: string,
-  ): Promise<DevTools.HeapSnapshotModel.HeapSnapshotModel.NativeContextSizes> {
-    return await this.#heapSnapshotManager.getNativeContextSizes(filePath);
-  }
-
-  async getHeapSnapshotRetainedByContextSummary(
-    filePath: string,
-  ): Promise<DevTools.HeapSnapshotModel.HeapSnapshotModel.RetainedByContextSummary> {
-    return await this.#heapSnapshotManager.getRetainedByContextSummary(
-      filePath,
-    );
-  }
-
-  async getHeapSnapshotNodesById(
-    filePath: string,
-    id: number,
-    filterName?: string,
-    objectId?: number,
-  ): Promise<DevTools.HeapSnapshotModel.HeapSnapshotModel.ItemsRange> {
-    return await this.#heapSnapshotManager.getNodesById(
-      filePath,
-      id,
-      filterName,
-      objectId,
-    );
-  }
-
-  async getHeapSnapshotRetainers(
-    filePath: string,
-    nodeId: number,
-  ): Promise<DevTools.HeapSnapshotModel.HeapSnapshotModel.ItemsRange> {
-    return await this.#heapSnapshotManager.getRetainers(filePath, nodeId);
-  }
-
-  async getHeapSnapshotObjectDetails(
-    filePath: string,
-    nodeId: number,
-  ): Promise<DevTools.HeapSnapshotModel.HeapSnapshotModel.ObjectInfo> {
-    return await this.#heapSnapshotManager.getObjectInfo(filePath, nodeId);
-  }
-
-  async analyzeHeapSnapshotContexts(
-    filePath: string,
-  ): Promise<DevTools.HeapSnapshotModel.HeapSnapshotModel.ContextAnalysisResult> {
-    return await this.#heapSnapshotManager.analyzeContexts(filePath);
-  }
-
-  async closeHeapSnapshot(filePath: string): Promise<boolean> {
-    return await this.#heapSnapshotManager.disposeSnapshot(filePath);
-  }
-
-  async getHeapSnapshotRetainingPaths(
-    filePath: string,
-    nodeId: number,
-    maxDepth?: number,
-    maxNodes?: number,
-    maxSiblings?: number,
-  ): Promise<DevTools.HeapSnapshotModel.HeapSnapshotModel.RetainingPaths> {
-    return await this.#heapSnapshotManager.getRetainingPaths(
-      filePath,
-      nodeId,
-      maxDepth,
-      maxNodes,
-      maxSiblings,
-    );
-  }
-
-  async getHeapSnapshotDominators(
-    filePath: string,
-    nodeId: number,
-  ): Promise<DevTools.HeapSnapshotModel.HeapSnapshotModel.DominatorChain> {
-    return await this.#heapSnapshotManager.getDominatorsOf(filePath, nodeId);
-  }
-
   #validateUrlNotBlocked(url: URL): void {
     if (!this.#options.blocklist) {
       return;
@@ -980,35 +773,5 @@ export class McpContext implements Context {
       default:
         throw new Error(`Unsupported protocol for: ${url}`);
     }
-  }
-
-  async getHeapSnapshotEdges(
-    filePath: string,
-    nodeId: number,
-    options?: HeapEdgesQueryOptions,
-  ): Promise<DevTools.HeapSnapshotModel.HeapSnapshotModel.ItemsRange> {
-    return await this.#heapSnapshotManager.getEdges(filePath, nodeId, options);
-  }
-
-  async getHeapSnapshotClassDiffs(
-    baseFilePath: string,
-    currentFilePath: string,
-  ): Promise<HeapSnapshotClassDiff[]> {
-    return await this.#heapSnapshotManager.getClassDiffs(
-      baseFilePath,
-      currentFilePath,
-    );
-  }
-
-  async getHeapSnapshotDetailedClassDiff(
-    baseFilePath: string,
-    currentFilePath: string,
-    classIndex: number,
-  ): Promise<HeapSnapshotDetailedClassDiff> {
-    return await this.#heapSnapshotManager.getDetailedClassDiff(
-      baseFilePath,
-      currentFilePath,
-      classIndex,
-    );
   }
 }

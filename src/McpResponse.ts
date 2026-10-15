@@ -86,6 +86,13 @@ interface TraceInsightData {
 interface ContextAnalysisOptions
   extends PaginationOptions, ContextFilterOptions, HeapSnapshotFormatOptions {}
 
+function requireBrowserContext(context: McpContext | undefined): McpContext {
+  if (!context) {
+    throw new Error('This response requires a browser connection.');
+  }
+  return context;
+}
+
 export class McpResponse implements Response {
   #includePages = false;
   #includeExtensionServiceWorkers = false;
@@ -527,10 +534,10 @@ export class McpResponse implements Response {
   }
 
   async #handleSnapshot(
-    context: McpContext,
+    context: McpContext | undefined,
   ): Promise<SnapshotFormatter | string | undefined> {
     if (this.#includePages) {
-      await context.createPagesSnapshot();
+      await requireBrowserContext(context).createPagesSnapshot();
     }
     if (!this.#snapshotParams) {
       return undefined;
@@ -544,7 +551,7 @@ export class McpResponse implements Response {
     });
     const formatter = new SnapshotFormatter(this.#page.textSnapshot);
     if (this.#snapshotParams.filePath) {
-      const result = await context.saveFile(
+      const result = await requireBrowserContext(context).saveFile(
         new TextEncoder().encode(formatter.toString()),
         this.#snapshotParams.filePath,
         '.txt',
@@ -555,7 +562,7 @@ export class McpResponse implements Response {
   }
 
   async #handleAttachedNetworkRequest(
-    context: McpContext,
+    context: McpContext | undefined,
   ): Promise<NetworkFormatter | undefined> {
     if (!this.#attachedNetworkRequestId) {
       return undefined;
@@ -573,7 +580,7 @@ export class McpResponse implements Response {
       requestFilePath: this.#attachedNetworkRequestOptions?.requestFilePath,
       responseFilePath: this.#attachedNetworkRequestOptions?.responseFilePath,
       saveFile: (data, filename, extension) =>
-        context.saveFile(data, filename, extension),
+        requireBrowserContext(context).saveFile(data, filename, extension),
       redactNetworkHeaders: this.#redactNetworkHeaders,
     });
   }
@@ -640,7 +647,7 @@ export class McpResponse implements Response {
   }
 
   async #handleConsoleList(
-    context: McpContext,
+    context: McpContext | undefined,
   ): Promise<Array<ConsoleFormatter | IssueFormatter> | undefined> {
     if (!this.#consoleDataOptions?.include) {
       return undefined;
@@ -650,7 +657,7 @@ export class McpResponse implements Response {
     let page: McpPage | undefined;
 
     if (this.#consoleDataOptions.serviceWorkerId) {
-      messages = context.getServiceWorkerConsoleData(
+      messages = requireBrowserContext(context).getServiceWorkerConsoleData(
         this.#consoleDataOptions.serviceWorkerId,
       );
     } else {
@@ -707,7 +714,7 @@ export class McpResponse implements Response {
   }
 
   async #handleNetworkRequestList(
-    context: McpContext,
+    context: McpContext | undefined,
   ): Promise<NetworkFormatter[] | undefined> {
     if (!this.#networkRequestsOptions?.include) {
       return undefined;
@@ -739,7 +746,7 @@ export class McpResponse implements Response {
             this.#networkRequestsOptions?.networkRequestIdInDevToolsUI,
           fetchData: false,
           saveFile: (data, filename, extension) =>
-            context.saveFile(data, filename, extension),
+            requireBrowserContext(context).saveFile(data, filename, extension),
           redactNetworkHeaders: this.#redactNetworkHeaders,
         }),
       ),
@@ -776,15 +783,19 @@ export class McpResponse implements Response {
     return {formatter, commentsSnapshotRegenerated};
   }
 
+  /**
+   * `context` is undefined for browserless tools. Requesting browser-dependent
+   * data (pages, console messages, network requests, ...) then throws.
+   */
   async handle(
-    context: McpContext,
+    context: McpContext | undefined,
     dataFormat: DataFormat = 'default',
   ): Promise<{
     content: Array<TextContent | ImageContent>;
     structuredContent: object;
   }> {
     if (this.#attachedWaitForResult?.openedPages && !this.#includePages) {
-      await context.createPagesSnapshot();
+      await requireBrowserContext(context).createPagesSnapshot();
     }
 
     const [
@@ -808,12 +819,12 @@ export class McpResponse implements Response {
     ]);
 
     if (this.#includeExtensionServiceWorkers) {
-      context.createWorkersSnapshot();
+      requireBrowserContext(context).createWorkersSnapshot();
     }
 
     let extensions: Map<string, Extension> | undefined;
     if (this.#listExtensions) {
-      extensions = await context.listExtensions();
+      extensions = await requireBrowserContext(context).listExtensions();
     }
 
     return await this.format(
@@ -850,7 +861,7 @@ export class McpResponse implements Response {
   }
 
   async format(
-    context: McpContext,
+    maybeContext: McpContext | undefined,
     data: {
       detailedConsoleMessage: ConsoleFormatter | IssueFormatter | undefined;
       consoleMessages: Array<ConsoleFormatter | IssueFormatter> | undefined;
@@ -984,6 +995,7 @@ export class McpResponse implements Response {
           this.#attachedWaitForResult.navigatedToUrl;
       }
       if (this.#attachedWaitForResult.openedPages) {
+        const context = requireBrowserContext(maybeContext);
         const openedPages = this.#attachedWaitForResult.openedPages;
         const openedMcpPages = context
           .getPages()
@@ -1086,6 +1098,7 @@ Call ${handleDialog(this.#args).name} to handle it before continuing.`);
     }
 
     if (this.#includePages) {
+      const context = requireBrowserContext(maybeContext);
       const allPages = context.getPages();
 
       const {regularPages, extensionPages} = allPages.reduce(
@@ -1167,7 +1180,7 @@ Call ${handleDialog(this.#args).name} to handle it before continuing.`);
     }
 
     if (this.#includeExtensionServiceWorkers) {
-      const extensionServiceWorkers = context
+      const extensionServiceWorkers = requireBrowserContext(maybeContext)
         .getWorkers()
         .filter(worker => worker.type === 'service_worker');
 

@@ -12,7 +12,7 @@ import {BrowserManager} from './BrowserManager.js';
 import {type ParsedArguments} from './config/ConfigParser.js';
 import {loadIssueDescriptions} from './devtools/issueDescriptions.js';
 import {McpContext} from './McpContext.js';
-import {HeapSnapshotManager} from './processors/HeapSnapshotManager.js';
+import {ServerContext} from './ServerContext.js';
 import {ClearcutLogger} from './telemetry/ClearcutLogger.js';
 import {FilePersistence} from './telemetry/persistence.js';
 import {
@@ -26,9 +26,8 @@ import {
 } from './third_party/index.js';
 import {ToolHandler} from './ToolHandler.js';
 import {
-  type DefinedPageTool,
+  type AnyToolDefinition,
   isAvailableInMode,
-  type ToolDefinition,
 } from './tools/ToolDefinition.js';
 import {createTools} from './tools/tools.js';
 import {logger} from './utils/logger.js';
@@ -61,7 +60,11 @@ export class McpServer {
   #serverArgs: ParsedArguments;
   #browserManager: BrowserManager;
   #context?: McpContext;
-  #heapSnapshotManager = new HeapSnapshotManager();
+  /**
+   * Browser-independent state shared by all browser contexts and used directly
+   * by browserless tools. It lives as long as the server.
+   */
+  #serverContext: ServerContext;
 
   /**
    * Client roots stay valid across browser reconnects and only the client can
@@ -69,12 +72,22 @@ export class McpServer {
    * roots are read from `#serverArgs` when combining roots.
    */
   #lastClientRoots?: Root[];
+  /**
+   * Whether a browserless tool call already waited for the initial
+   * `roots/list`, so a client that negotiates roots but never answers only
+   * delays the first such call.
+   */
+  #awaitedInitialRoots = false;
   #toolMutex = new Mutex();
   #tools = new Map<string, ToolEntry>();
 
   private constructor(serverArgs: ParsedArguments, options: McpServerOptions) {
     this.#serverArgs = serverArgs;
     this.#browserManager = options.browserManager;
+    this.#serverContext = new ServerContext({
+      allowUnrestrictedPaths: serverArgs.allowUnrestrictedPaths,
+    });
+    this.#serverContext.setRoots(this.#combinedRoots());
 
     if (this.#serverArgs.usageStatistics) {
       ClearcutLogger.initialize({
@@ -184,7 +197,7 @@ export class McpServer {
     } finally {
       this.#context = undefined;
     }
-    this.#heapSnapshotManager.dispose();
+    this.#serverContext.dispose();
     await Promise.allSettled([
       this.#browserManager.close(),
       this.server.close(),
@@ -253,7 +266,7 @@ export class McpServer {
         timeout === undefined ? undefined : {timeout},
       );
       this.#lastClientRoots = result.roots;
-      this.#context?.setRoots(this.#combinedRoots());
+      this.#serverContext.setRoots(this.#combinedRoots());
     } catch (e) {
       logger?.('Failed to list roots', e);
     }
@@ -273,11 +286,10 @@ export class McpServer {
         sourceMaps: this.#serverArgs.sourceMaps,
         allowlist: this.#serverArgs.allowedUrlPattern,
         blocklist: this.#serverArgs.blockedUrlPattern,
-        allowUnrestrictedPaths: this.#serverArgs.allowUnrestrictedPaths,
         // Surfaces a one-time note in the next response after a reconnect.
         reconnected: this.#context !== undefined,
         categoryExtensions: this.#serverArgs.categoryExtensions,
-        heapSnapshotManager: this.#heapSnapshotManager,
+        serverContext: this.#serverContext,
         onNotification: (message: string) => {
           void this.server
             .sendLoggingMessage({
@@ -289,32 +301,42 @@ export class McpServer {
             });
         },
       });
-      this.#context.setRoots(this.#combinedRoots());
       if (this.#lastClientRoots === undefined) {
         // Nothing listed yet, so this call has to wait – bounded, since it is
         // holding the tool mutex, and a later background refresh still lands
         await this.#updateRoots(ROOTS_REQUEST_TIMEOUT);
       } else {
-        // Carry the known roots over and refresh out of band, so a reconnect
-        // never pays for a client round-trip
+        // The known roots stay on the server context, refresh out of band so
+        // a reconnect never pays for a client round-trip
         void this.#updateRoots();
       }
     }
     return this.#context;
   }
 
-  #createToolHandler(tool: ToolDefinition | DefinedPageTool): ToolHandler {
+  async #getServerContext(): Promise<ServerContext> {
+    if (this.#lastClientRoots === undefined && !this.#awaitedInitialRoots) {
+      this.#awaitedInitialRoots = true;
+      // Nothing listed yet, so this call has to wait – bounded, since it is
+      // holding the tool mutex, and a later background refresh still lands
+      await this.#updateRoots(ROOTS_REQUEST_TIMEOUT);
+    }
+    return this.#serverContext;
+  }
+
+  #createToolHandler(tool: AnyToolDefinition): ToolHandler {
     return new ToolHandler(
       tool,
       this.#serverArgs,
       () => this.#getContext(),
+      () => this.#getServerContext(),
       this.#toolMutex,
       browser => this.#browserManager.forget(browser),
       () => this.#browserManager.abandonPendingAttempt(),
     );
   }
 
-  #registerTool(tool: ToolDefinition | DefinedPageTool): void {
+  #registerTool(tool: AnyToolDefinition): void {
     const handler = this.#createToolHandler(tool);
 
     const registeredTool = this.server.registerTool(

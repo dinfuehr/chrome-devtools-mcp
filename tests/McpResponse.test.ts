@@ -1482,6 +1482,26 @@ describe('McpResponse heap snapshot formatting', () => {
     );
   });
 
+  it('formats heap snapshot data without a browser context', async () => {
+    const response = new McpResponse(createMockParsedArguments());
+    response.appendResponseLine('Heap snapshot closed.');
+    response.setHeapSnapshotDominators([]);
+
+    const {content} = await response.handle(undefined);
+
+    assert.ok(getTextContent(content[0]).includes('Heap snapshot closed.'));
+  });
+
+  it('requires a browser context for browser-dependent data', async () => {
+    const response = new McpResponse(createMockParsedArguments());
+    response.setIncludePages(true);
+
+    await assert.rejects(
+      response.handle(undefined),
+      /This response requires a browser connection/,
+    );
+  });
+
   it('formats aggregate data with shallow size and pagination summaries', async () => {
     const response = new McpResponse(createMockParsedArguments());
     const aggregates = {

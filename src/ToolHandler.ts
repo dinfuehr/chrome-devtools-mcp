@@ -7,7 +7,8 @@
 import type {ParsedArguments} from './config/ConfigParser.js';
 import type {McpContext} from './McpContext.js';
 import type {McpPage} from './McpPage.js';
-import {McpResponse} from './McpResponse.js';
+import {McpResponse, type DataFormat} from './McpResponse.js';
+import type {ServerContext} from './ServerContext.js';
 import {SlimMcpResponse} from './SlimMcpResponse.js';
 import {ClearcutLogger} from './telemetry/ClearcutLogger.js';
 import type {Browser, CallToolResult, Mutex} from './third_party/index.js';
@@ -15,12 +16,19 @@ import {zod} from './third_party/index.js';
 import {labels} from './tools/categories.js';
 import {categoryToFlagName} from './config/category-options.js';
 import type {
+  AnyToolDefinition,
+  BrowserlessToolDefinition,
   DefinedPageTool,
   DevToolsData,
   FileVerificationOption,
   ToolDefinition,
 } from './tools/ToolDefinition.js';
-import {isAvailableInMode, isSlimTool} from './tools/ToolDefinition.js';
+import {
+  isAvailableInMode,
+  isBrowserlessTool,
+  isPageScopedTool,
+  isSlimTool,
+} from './tools/ToolDefinition.js';
 import {logger} from './utils/logger.js';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {isLocalhost} from './utils/url.js';
@@ -53,7 +61,7 @@ function buildDisabledMessage(
 }
 
 function getToolStatusInfo(
-  tool: ToolDefinition | DefinedPageTool,
+  tool: AnyToolDefinition,
   serverArgs: ParsedArguments,
 ): {disabled: boolean; reason?: string; unavailableInMode?: boolean} {
   if (!isAvailableInMode(tool, serverArgs)) {
@@ -89,15 +97,13 @@ function getToolStatusInfo(
   return {disabled: false};
 }
 
-function isPageScopedTool(
-  tool: ToolDefinition | DefinedPageTool,
-): tool is DefinedPageTool {
-  return 'pageScoped' in tool && tool.pageScoped === true;
+interface PathValidator {
+  validatePath(filePath: string): Promise<string>;
 }
 
 async function validateAndResolvePathOrUrl(
   filePathOrUrl: string,
-  context: McpContext,
+  validator: PathValidator,
 ): Promise<string | undefined> {
   if (filePathOrUrl.trim().length === 0) {
     return undefined;
@@ -105,7 +111,8 @@ async function validateAndResolvePathOrUrl(
   try {
     const url = new URL(filePathOrUrl);
     if (url.protocol === 'file:') {
-      return pathToFileURL(await context.validatePath(fileURLToPath(url))).href;
+      return pathToFileURL(await validator.validatePath(fileURLToPath(url)))
+        .href;
     }
     if (['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)) {
       return filePathOrUrl;
@@ -113,7 +120,7 @@ async function validateAndResolvePathOrUrl(
   } catch {
     // Suppress parsing errors for regular file paths.
   }
-  return await context.validatePath(filePathOrUrl);
+  return await validator.validatePath(filePathOrUrl);
 }
 
 function isLocalBrowser(context: McpContext): boolean {
@@ -143,22 +150,26 @@ function shouldValidateFile(
   return false;
 }
 
+/**
+ * `isLocal` tells whether files are accessed on the machine the server runs on,
+ * which is always the case for browserless tools.
+ */
 async function validateToolFiles(
-  tool: ToolDefinition | DefinedPageTool,
+  tool: AnyToolDefinition,
   params: Record<string, unknown>,
-  context: McpContext,
+  validator: PathValidator,
+  isLocal: boolean,
 ): Promise<void> {
-  const isLocal = isLocalBrowser(context);
   for (const [key, option] of Object.entries(tool.verifyFilesSchema)) {
     if (shouldValidateFile(option, isLocal)) {
       const val = params[key];
       if (typeof val === 'string') {
-        params[key] = await validateAndResolvePathOrUrl(val, context);
+        params[key] = await validateAndResolvePathOrUrl(val, validator);
       } else if (Array.isArray(val)) {
         const updated: unknown[] = [];
         for (const item of val) {
           if (typeof item === 'string') {
-            const resolved = await validateAndResolvePathOrUrl(item, context);
+            const resolved = await validateAndResolvePathOrUrl(item, validator);
             if (resolved !== undefined) {
               updated.push(resolved);
             }
@@ -184,9 +195,10 @@ export class ToolHandler {
   private readonly disabledReason?: string;
 
   constructor(
-    private readonly tool: ToolDefinition | DefinedPageTool,
+    private readonly tool: AnyToolDefinition,
     private readonly serverArgs: ParsedArguments,
     private readonly getContext: () => Promise<McpContext>,
+    private readonly getServerContext: () => Promise<ServerContext>,
     private readonly toolMutex: Mutex,
     private readonly forgetBrowserOnTimeout: (browser: Browser) => void,
     private readonly abandonPendingBrowserAttemptOnTimeout: () => void,
@@ -233,6 +245,118 @@ export class ToolHandler {
     }
   }
 
+  #dataFormat(): DataFormat {
+    // --experimentalDataFormat takes precedence over the legacy
+    // --experimentalToonFormat.
+    return (
+      this.serverArgs.experimentalDataFormat ??
+      (this.serverArgs.experimentalToonFormat ? 'toon' : 'default')
+    );
+  }
+
+  /**
+   * Browserless tools never wait on the browser connection, so they neither
+   * establish one nor run under TOOL_CALL_TIMEOUT_MS, which exists to detect
+   * dead browser connections and would otherwise also cut off long-running
+   * local work such as parsing a large heap snapshot.
+   */
+  async #runBrowserlessTool(
+    tool: BrowserlessToolDefinition,
+    params: Record<string, unknown>,
+    response: McpResponse,
+  ): ReturnType<McpResponse['handle']> {
+    const serverContext = await this.getServerContext();
+    try {
+      await validateToolFiles(tool, params, serverContext, true);
+      await tool.handler({params}, response, serverContext);
+    } catch (err) {
+      response.setError(err);
+    }
+    return await response.handle(undefined, this.#dataFormat());
+  }
+
+  async #runBrowserTool(
+    tool: ToolDefinition | DefinedPageTool,
+    params: Record<string, unknown>,
+    response: McpResponse,
+    onTelemetryData: (
+      devToolsData: DevToolsData | undefined,
+      pageUrl: string | undefined,
+    ) => void,
+  ): ReturnType<McpResponse['handle']> {
+    // ensureBrowser() has no cancellation mechanism, so this timeout only
+    // stops us from waiting — the attempt itself keeps running abandoned.
+    // abandonPendingBrowserAttemptOnTimeout() tells BrowserManager to
+    // discard that attempt if it succeeds later instead of handing it to a
+    // subsequent caller — see BrowserManager#abandonPendingAttempt()'s doc
+    // comment for the full mechanism.
+    const context = await this.#raceWithTimeout(this.getContext(), () =>
+      this.abandonPendingBrowserAttemptOnTimeout(),
+    );
+    logger?.(`${tool.name} context: resolved`);
+    if (context.consumeReconnectNotice()) {
+      response.setReconnectNotice();
+    }
+    // Shares one budget with tool.handler(): several tools' actual CDP
+    // calls happen in response.handle() instead (take_snapshot,
+    // list_pages, get_network_request, list_extensions), so it needs
+    // covering too. The closure below isn't cancelled on timeout — it
+    // keeps running abandoned — but nothing after this point observes its
+    // result.
+    return await this.#raceWithTimeout(
+      (async () => {
+        let page: McpPage | undefined;
+        try {
+          await validateToolFiles(
+            tool,
+            params,
+            context,
+            isLocalBrowser(context),
+          );
+          if (isPageScopedTool(tool)) {
+            const pageId =
+              typeof params.pageId === 'number' ? params.pageId : undefined;
+            page =
+              this.serverArgs.pageIdRouting &&
+              pageId !== undefined &&
+              !isSlimTool(tool)
+                ? context.getPageById(pageId)
+                : context.getSelectedMcpPage();
+            await page?.init();
+            response.setPage(page);
+            if (tool.blockedByDialog) {
+              page.throwIfDialogOpen();
+            }
+            await tool.handler(
+              {
+                params,
+                page,
+              },
+              response,
+              context,
+            );
+          } else {
+            await tool.handler(
+              {
+                params,
+              },
+              response,
+              context,
+            );
+          }
+        } catch (err) {
+          response.setError(err);
+        }
+        onTelemetryData(
+          await context.getDevToolsData(page),
+          context.getSelectedMcpPageUrl(page),
+        );
+        return await response.handle(context, this.#dataFormat());
+      })(),
+      () => this.forgetBrowserOnTimeout(context.browser),
+    );
+  }
+
   handle = async (params: Record<string, unknown>): Promise<CallToolResult> => {
     using guard = await this.toolMutex.acquire();
 
@@ -256,80 +380,22 @@ export class ToolHandler {
       logger?.(
         `${this.tool.name} request: ${JSON.stringify(params, null, '  ')}`,
       );
-      // ensureBrowser() has no cancellation mechanism, so this timeout only
-      // stops us from waiting — the attempt itself keeps running abandoned.
-      // abandonPendingBrowserAttemptOnTimeout() tells BrowserManager to
-      // discard that attempt if it succeeds later instead of handing it to a
-      // subsequent caller — see BrowserManager#abandonPendingAttempt()'s doc
-      // comment for the full mechanism.
-      const context = await this.#raceWithTimeout(this.getContext(), () =>
-        this.abandonPendingBrowserAttemptOnTimeout(),
-      );
-      logger?.(`${this.tool.name} context: resolved`);
       const response = this.serverArgs.slim
         ? new SlimMcpResponse(this.serverArgs)
         : new McpResponse(this.serverArgs);
-
       response.setRedactNetworkHeaders(this.serverArgs.redactNetworkHeaders);
-      if (context.consumeReconnectNotice()) {
-        response.setReconnectNotice();
-      }
-      // Shares one budget with tool.handler(): several tools' actual CDP
-      // calls happen in response.handle() instead (take_snapshot,
-      // list_pages, get_network_request, list_extensions), so it needs
-      // covering too. The closure below isn't cancelled on timeout — it
-      // keeps running abandoned — but nothing after this point observes its
-      // result.
-      const {content, structuredContent} = await this.#raceWithTimeout(
-        (async () => {
-          let page: McpPage | undefined;
-          try {
-            await validateToolFiles(this.tool, params, context);
-            if (isPageScopedTool(this.tool)) {
-              const pageId =
-                typeof params.pageId === 'number' ? params.pageId : undefined;
-              page =
-                this.serverArgs.pageIdRouting &&
-                pageId !== undefined &&
-                !isSlimTool(this.tool)
-                  ? context.getPageById(pageId)
-                  : context.getSelectedMcpPage();
-              await page?.init();
-              response.setPage(page);
-              if (this.tool.blockedByDialog) {
-                page.throwIfDialogOpen();
-              }
-              await this.tool.handler(
-                {
-                  params,
-                  page,
-                },
-                response,
-                context,
-              );
-            } else {
-              await this.tool.handler(
-                {
-                  params,
-                },
-                response,
-                context,
-              );
-            }
-          } catch (err) {
-            response.setError(err);
-          }
-          devToolsData = await context.getDevToolsData(page);
-          pageUrl = context.getSelectedMcpPageUrl(page);
-          // --experimentalDataFormat takes precedence over the legacy
-          // --experimentalToonFormat.
-          const dataFormat =
-            this.serverArgs.experimentalDataFormat ??
-            (this.serverArgs.experimentalToonFormat ? 'toon' : 'default');
-          return await response.handle(context, dataFormat);
-        })(),
-        () => this.forgetBrowserOnTimeout(context.browser),
-      );
+
+      const {content, structuredContent} = isBrowserlessTool(this.tool)
+        ? await this.#runBrowserlessTool(this.tool, params, response)
+        : await this.#runBrowserTool(
+            this.tool,
+            params,
+            response,
+            (data, url) => {
+              devToolsData = data;
+              pageUrl = url;
+            },
+          );
       const result: CallToolResult & {
         structuredContent?: Record<string, unknown>;
       } = {

@@ -44,6 +44,7 @@ import {
   createMockObjectInfo,
   createMockRetainedByContextSummary,
   createMockRetainingPaths,
+  createMockServerContext,
 } from '../mocks.js';
 import {createTempDir, withMcpContext} from '../utils.js';
 
@@ -99,7 +100,8 @@ describe('memory', () => {
 
   describe('get_heapsnapshot_summary', () => {
     it('fetches stats, static data, native context sizes, and retained summary', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const stats = createMockHeapSnapshotStats();
       const staticData = createMockHeapSnapshotStaticData();
       const nativeContextSizes = createMockNativeContextSizes();
@@ -147,7 +149,8 @@ describe('memory', () => {
 
   describe('get_heapsnapshot_details', () => {
     it('with default options', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const aggregates = createMockHeapSnapshotAggregateData();
       context.getHeapSnapshotAggregates.resolves(aggregates);
 
@@ -171,7 +174,8 @@ describe('memory', () => {
     });
 
     it('with filters and pagination', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const aggregates = createMockHeapSnapshotAggregateData();
       context.getHeapSnapshotAggregates.resolves(aggregates);
 
@@ -206,7 +210,8 @@ describe('memory', () => {
 
   describe('get_heapsnapshot_class_nodes', () => {
     it('with default options', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const nodes = createMockItemsRange();
       context.getHeapSnapshotNodesById.resolves(nodes);
 
@@ -231,7 +236,8 @@ describe('memory', () => {
     });
 
     it('with filters and pagination', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const nodes = createMockItemsRange();
       context.getHeapSnapshotNodesById.resolves(nodes);
 
@@ -267,7 +273,8 @@ describe('memory', () => {
 
   describe('get_heapsnapshot_retainers', () => {
     it('with default options', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const retainers = createMockItemsRange();
       context.getHeapSnapshotRetainers.resolves(retainers);
 
@@ -290,7 +297,8 @@ describe('memory', () => {
     });
 
     it('with pagination', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const retainers = createMockItemsRange();
       context.getHeapSnapshotRetainers.resolves(retainers);
 
@@ -322,7 +330,8 @@ describe('memory', () => {
 
   describe('get_heapsnapshot_object_details', () => {
     it('with valid nodeId', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const objectInfo = createMockObjectInfo();
       context.getHeapSnapshotObjectDetails.resolves(objectInfo);
 
@@ -347,7 +356,8 @@ describe('memory', () => {
 
   describe('analyze_heapsnapshot_contexts', () => {
     it('delegates to analyzeHeapSnapshotContexts and forwards options', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const analysis = createMockContextAnalysisResult();
       context.analyzeHeapSnapshotContexts.resolves(analysis);
 
@@ -386,7 +396,8 @@ describe('memory', () => {
 
   describe('close_heapsnapshot', () => {
     it('closes loaded snapshot', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       context.closeHeapSnapshot.resolves(true);
 
       await closeHeapSnapshot(args).handler(
@@ -406,7 +417,8 @@ describe('memory', () => {
     });
 
     it('throws error when snapshot was not loaded', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       context.closeHeapSnapshot.resolves(false);
 
       await assert.rejects(
@@ -425,7 +437,8 @@ describe('memory', () => {
 
   describe('get_heapsnapshot_retaining_paths', () => {
     it('with default options', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const retainingPaths = createMockRetainingPaths();
       context.getHeapSnapshotRetainingPaths.resolves(retainingPaths);
 
@@ -451,7 +464,8 @@ describe('memory', () => {
     });
 
     it('with search limits', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const retainingPaths = createMockRetainingPaths();
       context.getHeapSnapshotRetainingPaths.resolves(retainingPaths);
 
@@ -487,7 +501,8 @@ describe('memory', () => {
 
   describe('get_heapsnapshot_edges', () => {
     it('with default options', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const edges = createMockItemsRange();
       context.getHeapSnapshotEdges.resolves(edges);
 
@@ -515,7 +530,8 @@ describe('memory', () => {
     });
 
     it('with retainedSize range, sortBy, and excludePrimitives', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const edges = createMockItemsRange();
       context.getHeapSnapshotEdges.resolves(edges);
 
@@ -555,7 +571,8 @@ describe('memory', () => {
 
   describe('get_heapsnapshot_dominators', () => {
     it('with valid nodeId', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const dominators = createMockDominatorChain();
       context.getHeapSnapshotDominators.resolves(dominators);
 
@@ -580,7 +597,8 @@ describe('memory', () => {
 
   describe('compare_heapsnapshots', () => {
     it('returns summary diff when classIndex is omitted', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const diffs = createMockClassDiffs();
       context.getHeapSnapshotClassDiffs.resolves(diffs);
 
@@ -608,7 +626,8 @@ describe('memory', () => {
     });
 
     it('returns detailed diff when classIndex is provided', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const detailedDiff = createMockDetailedClassDiff();
       context.getHeapSnapshotDetailedClassDiff.resolves(detailedDiff);
 
@@ -641,7 +660,8 @@ describe('memory', () => {
 
   describe('get_heapsnapshot_duplicate_strings', () => {
     it('with default options', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const duplicateStrings = createMockDuplicateStrings();
       context.getHeapSnapshotDuplicateStrings.resolves(duplicateStrings);
 
@@ -663,7 +683,8 @@ describe('memory', () => {
     });
 
     it('with pagination', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const duplicateStrings = createMockDuplicateStrings();
       context.getHeapSnapshotDuplicateStrings.resolves(duplicateStrings);
 
@@ -694,7 +715,8 @@ describe('memory', () => {
 
   describe('query_heapsnapshot_objects', () => {
     it('with default options', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const range = createMockItemsRange();
       context.queryHeapSnapshotObjects.resolves(range);
 
@@ -727,7 +749,8 @@ describe('memory', () => {
     });
 
     it('with all query filters and pagination', async () => {
-      const {context, response, args} = createHandlerMocks();
+      const {response, args} = createHandlerMocks();
+      const context = createMockServerContext();
       const range = createMockItemsRange();
       context.queryHeapSnapshotObjects.resolves(range);
 

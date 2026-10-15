@@ -27,7 +27,7 @@ import sinon from 'sinon';
 import type {ParsedArguments} from '../src/config/ConfigParser.js';
 import {McpContext} from '../src/McpContext.js';
 import {McpResponse} from '../src/McpResponse.js';
-import {HeapSnapshotManager} from '../src/processors/HeapSnapshotManager.js';
+import {ServerContext} from '../src/ServerContext.js';
 import {TextSnapshot} from '../src/TextSnapshot.js';
 import {DevTools} from '../src/third_party/index.js';
 import {stableIdSymbol} from '../src/utils/id.js';
@@ -190,7 +190,9 @@ export async function withMcpContext(
     McpContext.resetWorkerIdsForTesting();
     const parsedArgs = createMockParsedArguments(args);
     const response = new McpResponse(parsedArgs);
-    const heapSnapshotManager = new HeapSnapshotManager();
+    const serverContext = new ServerContext({
+      allowUnrestrictedPaths: options.allowUnrestrictedPaths ?? false,
+    });
     if (context) {
       context.dispose();
     }
@@ -203,12 +205,11 @@ export async function withMcpContext(
         sourceMaps: options.sourceMaps ?? true,
         allowlist: options.allowedUrlPattern,
         blocklist: options.blockedUrlPattern,
-        allowUnrestrictedPaths: options.allowUnrestrictedPaths ?? false,
         navigationTimeout:
           options.navigationTimeout ??
           (process.platform === 'win32' ? 20000 : undefined),
         categoryExtensions: parsedArgs.categoryExtensions,
-        heapSnapshotManager,
+        serverContext,
       },
       Locator,
     );
@@ -219,7 +220,7 @@ export async function withMcpContext(
       await cb(response, context, parsedArgs);
     } finally {
       context.dispose();
-      heapSnapshotManager.dispose();
+      serverContext.dispose();
       context = undefined;
     }
   }, options);

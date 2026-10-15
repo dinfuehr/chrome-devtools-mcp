@@ -33,6 +33,7 @@ import {McpContext} from '../src/McpContext.js';
 import {McpPage} from '../src/McpPage.js';
 import {McpResponse} from '../src/McpResponse.js';
 import {McpWorker, type WorkerType} from '../src/McpWorker.js';
+import {ServerContext} from '../src/ServerContext.js';
 import type {
   DuplicateStringGroup,
   HeapSnapshotAggregate,
@@ -74,6 +75,7 @@ export type MockMcpPage = sinon.SinonStubbedInstance<McpPage> & {
 };
 export type MockMcpContext = sinon.SinonStubbedInstance<McpContext>;
 export type MockMcpResponse = sinon.SinonStubbedInstance<McpResponse>;
+export type MockServerContext = sinon.SinonStubbedInstance<ServerContext>;
 export type MockDOMNode = sinon.SinonStubbedInstance<DevTools.DOMModel.DOMNode>;
 export type MockCSSProperty =
   sinon.SinonStubbedInstance<DevTools.CSSProperty.CSSProperty>;
@@ -430,6 +432,10 @@ export function createMockMcpContext(
 
 export function createMockMcpResponse(): MockMcpResponse {
   return sinon.createStubInstance(McpResponse);
+}
+
+export function createMockServerContext(): MockServerContext {
+  return sinon.createStubInstance(ServerContext);
 }
 
 /**
